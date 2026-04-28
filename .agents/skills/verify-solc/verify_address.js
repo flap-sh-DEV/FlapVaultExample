@@ -222,22 +222,79 @@ async function resolveAndLoadSolc(major, minor, patch) {
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
+// ── input helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Build a minimal Standard JSON input from a single .sol file.
+ * Imports won't be resolved; use a full input.json for contracts with dependencies.
+ */
+function buildStandardJsonFromSolFile(solFilePath) {
+  const content = fs.readFileSync(solFilePath, 'utf8');
+  const fileName = path.basename(solFilePath);
+  return {
+    language: 'Solidity',
+    sources: { [fileName]: { content } },
+    settings: {
+      outputSelection: { '*': { '*': ['evm.deployedBytecode'] } },
+    },
+  };
+}
+
+/**
+ * Load standard JSON input from either a .json or a .sol file.
+ * If a .sol file is given, generates a minimal Standard JSON automatically.
+ */
+function loadStandardInput(inputFile) {
+  const inputPath = path.resolve(process.cwd(), inputFile);
+
+  if (inputFile.endsWith('.sol')) {
+    console.log(`Generating Standard JSON from Solidity file: ${inputFile}`);
+    try {
+      return buildStandardJsonFromSolFile(inputPath);
+    } catch (err) {
+      console.error(`Could not read ${inputFile}: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(inputPath, 'utf8');
+  } catch (err) {
+    console.error(`Could not read ${inputFile} at ${inputPath}: ${err.message}`);
+    process.exit(1);
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`${inputFile} is not valid JSON: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// ── main ──────────────────────────────────────────────────────────────────────
+
 async function main() {
   const args = process.argv.slice(2);
   let address = null;
   let rpcUrl = process.env.ETH_RPC_URL || 'https://bsc-dataseed.binance.org/';
+  let inputFile = process.env.VERIFY_INPUT || 'input.json';
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === '--rpc' || args[i] === '-r') && args[i + 1]) {
       rpcUrl = args[++i];
+    } else if ((args[i] === '--input' || args[i] === '-i') && args[i + 1]) {
+      inputFile = args[++i];
     } else if (!address && /^0x[0-9a-fA-F]{40}$/i.test(args[i])) {
       address = args[i].toLowerCase();
     }
   }
 
   if (!address) {
-    console.error('Usage: node verify_address.js <address> [--rpc <rpc_url>]');
-    console.error('       ETH_RPC_URL env var can be used instead of --rpc');
+    console.error('Usage: node verify_address.js <address> [--rpc <rpc_url>] [--input <file>]');
+    console.error('       --input  Standard JSON or .sol file  (default: input.json)');
+    console.error('       ETH_RPC_URL / VERIFY_INPUT env vars can be used instead');
     process.exit(1);
   }
 
@@ -281,15 +338,9 @@ async function main() {
     process.exit(1);
   }
 
-  // 4. Read and compile input.json
-  const inputPath = path.join(process.cwd(), 'input.json');
-  let standardInput;
-  try {
-    standardInput = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
-  } catch (err) {
-    console.error(`Could not read/parse input.json: ${err.message}`);
-    process.exit(1);
-  }
+  // 4. Read and compile input
+  console.log(`Reading input from: ${inputFile}`);
+  const standardInput = loadStandardInput(inputFile);
 
   let output;
   try {
