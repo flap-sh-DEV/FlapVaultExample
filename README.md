@@ -8,6 +8,10 @@ This repo will include example implementations of Flap Tax Vaults using the new 
 
 ---
 
+> **Before you submit for audit →** Use the built-in `flap-vault-spec-checker` Copilot agent skill to verify your vault's spec compliance. See [Pre-Audit Verification with the Copilot Skill](#pre-audit-verification-with-the-copilot-skill) for step-by-step instructions.
+
+---
+
 ## Table of Contents
 
 - [Directory Structure](#directory-structure)
@@ -18,6 +22,7 @@ This repo will include example implementations of Flap Tax Vaults using the new 
   - [Step 2 — Describe the UI schema](#step-2--describe-the-ui-schema)
   - [Step 3 — Deploy your factory](#step-3--deploy-your-factory)
   - [Step 4 — Launch a token using your factory](#step-4--launch-a-token-using-your-factory)
+- [Pre-Audit Verification with the Copilot Skill](#pre-audit-verification-with-the-copilot-skill)
 - [Writing Integration Tests Before Audit](#writing-integration-tests-before-audit)
   - [Required test coverage before audit](#required-test-coverage-before-audit)
   - [Running the tests](#running-the-tests)
@@ -179,11 +184,50 @@ address token = vaultPortal.newTokenV6WithVault{value: params.quoteAmt}(params);
 
 ---
 
+## Pre-Audit Verification with the Copilot Skill
+
+> ⚠️ **Complete this step before writing integration tests or submitting for audit.**
+
+This repo ships with a built-in Copilot agent skill — [`flap-vault-spec-checker`](.agents/skills/flap-vault-spec-checker/) — that audits your vault and factory contracts for compliance with the Flap VaultPortal protocol specification.  It checks inheritance, `receive()` gas limits, fairness rules, UI-friendliness, integration test coverage, and more.  **Run this check first.**
+
+### How to run the skill
+
+Open this repository in VS Code with GitHub Copilot enabled.  The skill is picked up automatically.  Simply ask Copilot to audit your vault:
+
+```
+audit my vault at src/MyVault.sol
+```
+
+or
+
+```
+check flap spec compliance for src/MyVault.sol
+```
+
+Copilot will work through the full compliance checklist and report each rule as ✅ PASS, ❌ FAIL, or ⚠️ WARNING.
+
+| Result | Meaning |
+|--------|---------|
+| ✅ All rules pass | Vault is spec-compliant — safe to proceed to integration tests |
+| ⚠️ Warnings | Non-critical issues to review before audit |
+| ❌ Failures | Spec violations that must be fixed before audit |
+
+Consult the [skill README](.agents/skills/flap-vault-spec-checker/SKILL.md) for the full list of rules and troubleshooting guidance.
+
+### After passing verification
+
+Once all rules pass (no ❌ failures), proceed to the integration tests below.  You can still choose to launch your token without reaching out to us first, but your vault will show a warning message by default until a third-party audit has been completed.  After tests pass, **reach out to us to arrange the final third-party audit and remove the warning message from your vault on Flap.sh.**
+It is strongly recommended to do this before launching your token, because after launch you may not be able to change the vault implementation or its behavior, and some issues may no longer be possible to mitigate.
+
+---
+
 ## Writing Integration Tests Before Audit
 
 > ⚠️ **You must pass all integration tests before submitting your vault for a security audit.**
 >
 > Auditors will review your test suite as part of the engagement.  A vault submitted with no integration tests — or with failing tests — signals that basic correctness has not been verified, which increases the scope and cost of the audit.  **The fastest way to clear the audit warning flag is to write integration tests that cover your vault's main logic and make them all pass.**
+>
+> **The final audit is performed by a third party.  You may still launch your token without contacting us first, but the warning message will remain by default until the third-party audit is completed.  Once you have completed the self-verification steps above and all integration tests pass, please reach out to us so we can arrange the final audit and remove the warning message from your vault on Flap.sh.  It is better to do this before you launch your token, because after launch you may not be able to change the vault setup anymore, and some issues may not be fixable at that point.**
 
 This repo ships with a mainnet-fork test fixture ([`test/FlapBSCFixture.sol`](test/FlapBSCFixture.sol)) and a complete integration test suite for the FreeCoin vault ([`test/FreeCoin.mainnet.t.sol`](test/FreeCoin.mainnet.t.sol)) that you can use as a template.
 
