@@ -4,7 +4,7 @@ To be compatible with our VaultPortal system, your vault smart contract must inh
 
 - If the vault does not need any UI components, `vaultUISchema` should return `VaultUISchema` with empty methods array.  
 
-- The legacy description method is deprecated, but the method should still be implemented. You can return an empty string or a placeholder description. The UI will prioritize the new `vaultUISchema` for displaying information and interactions, so the legacy description will not be shown to users.   
+- The legacy description method is deprecated, but the method should still be implemented. You can return an empty string or a placeholder description. The UI will prioritize the new `vaultUISchema` for displaying information and interactions, so the legacy description will not be shown to users. **Auditors must NOT flag a static or placeholder `description()` return value as a finding — only flag if the function is missing entirely.**  
 
 
 Note that: if the developer choose to flatten the VaultBaseV2 into their vault contract, it is also okay. But we need to verify that the flattened code is exactly the same as the original VaultBaseV2 (interfaces, and implementations, the natspec commments can be ignored), and that the vault contract implements all the required functions correctly.  
@@ -86,7 +86,7 @@ This ensures the Guardian always retains a path to invoke permissioned functions
 
 - All permissioned functions that are not suitable to be fully public must also be callable by the Guardian address.
 - There is no code path through which a non-Guardian account can revoke or otherwise remove the Guardian's role(s).
-- If the vault uses a custom access-control mechanism (not OpenZeppelin `AccessControl`), the equivalent invariant must be enforced: only the Guardian itself can renounce its own access. 
+- If the vault uses a custom access-control mechanism (not OpenZeppelin `AccessControl`), the equivalent invariant must be enforced: only the Guardian itself can renounce its own access. **When using custom modifiers (e.g. `onlyOwner`, `onlyOwnerOrGuardian`), auditors must NOT flag the absence of `revokeRole()` override as a finding — this check only applies to contracts that use OZ `AccessControl`.**
 - Privileged parameter controls (slippage/timing/routing/keeper knobs) must not create a practical sandwich-attack advantage for insiders.
 
 

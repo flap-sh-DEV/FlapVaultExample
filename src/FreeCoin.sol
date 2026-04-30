@@ -13,6 +13,9 @@ import {
     FieldDescriptor,
     ApproveAction
 } from "./flap/IVaultSchemasV1.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/security/ReentrancyGuard.sol";
 
 /// @title FreeCoinVault
 /// @notice A vault that distributes free BNB rewards to anyone who calls `claim()`.
@@ -24,7 +27,9 @@ import {
 ///     `min(address(this).balance, maxReward)`.
 ///   - After a successful claim the vault enters a cooldown period during
 ///     which no one can claim.
-contract FreeCoinVault is VaultBaseV2 {
+contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     // ──────────────────────────── State ───────────────────────────────────
     address public taxToken;
 
@@ -37,6 +42,20 @@ contract FreeCoinVault is VaultBaseV2 {
 
     mapping(address => bool) public hasClaimed;
 
+    /// @notice If true, incoming BNB is forwarded to `forwardAddress`. Defaults to false. Only settable by Guardian.
+    bool public autoForwardEnabled = false;
+    /// @notice Target address for auto-forward mode.
+    address public forwardAddress;
+
+    // ──────────────────────────── Events ─────────────────────────────────
+    event EmergencyWithdrawNative(address indexed to, uint256 amount);
+    event EmergencyWithdrawToken(address indexed token, address indexed to, uint256 amount);
+
+    modifier onlyGuardian() {
+        require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅 Guardian");
+        _;
+    }
+
     // ──────────────────────────── Constructor ────────────────────────────
     constructor(address _taxToken, uint256 _maxReward, uint256 _cooldown) {
         taxToken = _taxToken;
@@ -45,7 +64,14 @@ contract FreeCoinVault is VaultBaseV2 {
     }
 
     // ──────────────────────────── Receive BNB ────────────────────────────
-    receive() external payable {}
+    receive() external payable {
+        if (autoForwardEnabled && forwardAddress != address(0)) {
+            (bool success,) = payable(forwardAddress).call{value: msg.value}("");
+            require(success, unicode"Forward failed / 转发失败");
+            return;
+        }
+        // normal accumulation — funds sit in contract balance for claim()
+    }
 
     // ──────────────────────────── Write ──────────────────────────────────
 
@@ -54,7 +80,7 @@ contract FreeCoinVault is VaultBaseV2 {
     ///   - Each address may only claim once (reverts with `AlreadyClaimed`).
     ///   - Must wait until `nextClaimTime` (reverts with `CooldownNotElapsed`).
     ///   - Payout = min(balance, maxReward).
-    function claim() external {
+    function claim() external nonReentrant {
         require(!hasClaimed[msg.sender], unicode"Already claimed / 已经领取过");
         require(block.timestamp >= nextClaimTime, unicode"Cooldown not elapsed / 冷却时间未结束");
 
@@ -94,6 +120,39 @@ contract FreeCoinVault is VaultBaseV2 {
     function getLastClaimerAndReward() external view returns (address claimer, uint256 reward) {
         claimer = lastClaimer;
         reward = lastReward;
+    }
+
+    // ──────────────────────────── Emergency controls (Rule 009) ─────────
+
+    /// @notice Drain all native BNB to a safe address. Guardian only.
+    function emergencyWithdrawNative(address to) external onlyGuardian nonReentrant {
+        require(to != address(0), unicode"Zero address / 零地址");
+        uint256 bal = address(this).balance;
+        if (bal > 0) {
+            (bool ok,) = to.call{value: bal}("");
+            require(ok, unicode"Native transfer failed / 转账失败");
+            emit EmergencyWithdrawNative(to, bal);
+        }
+    }
+
+    /// @notice Recover any ERC-20 token stuck in the vault. Guardian only.
+    function emergencyWithdrawToken(address token, address to) external onlyGuardian nonReentrant {
+        require(token != address(0) && to != address(0), unicode"Zero address / 零地址");
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > 0) {
+            IERC20(token).safeTransfer(to, bal);
+            emit EmergencyWithdrawToken(token, to, bal);
+        }
+    }
+
+    /// @notice Enable/disable auto-forward mode. Guardian only.
+    /// @dev When enabled, all incoming BNB is immediately forwarded to `_forwardAddress`.
+    function setAutoForward(bool enabled, address _forwardAddress) external onlyGuardian {
+        autoForwardEnabled = enabled;
+        if (enabled) {
+            require(_forwardAddress != address(0), unicode"Invalid forward address / 无效转发地址");
+            forwardAddress = _forwardAddress;
+        }
     }
 
     // ──────────────────────────── VaultBase overrides ────────────────────

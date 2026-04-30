@@ -57,12 +57,18 @@ Work through every item below. Report PASS ✅ / FAIL ❌ / WARNING ⚠️.
 - [ ] Factory (if present) inherits `VaultFactoryBaseV2` — see [002](./references/rules/002-vault-factory-rules.md)
 
 #### `receive()` gas limit ⚠️ CRITICAL
-- [ ] No unbounded loops, external calls, or delegatecalls in `receive()`
+
+> **Scope rule: ONLY analyse the `receive()` function body and any internal functions it directly or transitively calls. External calls that exist elsewhere in the contract (e.g., in `claimReward`, `unstake*`, or internal helpers that are NOT reachable from `receive()`) are completely irrelevant to Rule 005. Do NOT flag them as `receive()` violations.**
+
+- [ ] Read `receive()` line-by-line. Trace every internal call it makes. Build the full call tree. Only flag patterns found within that call tree.
+- [ ] No unbounded loops inside the `receive()` call tree
+- [ ] No external calls (`.call`, `.transfer`, token transfers, interface calls) inside the `receive()` call tree
+- [ ] No `delegatecall` inside the `receive()` call tree
 - [ ] Worst-case gas ≤ 1,000,000 — see [005](./references/rules/005-receive-gas-limit.md)
 
 #### `description()` implementation
 - [ ] Overrides `description() public view returns (string memory)`
-- [ ] Returns a dynamic string reflecting current vault state
+- [ ] Returns any non-reverting string — static / placeholder strings are **acceptable per Rule 001** (the legacy field is deprecated; the UI uses `vaultUISchema` instead). Do NOT flag a static description as a finding. Only flag if the function is missing entirely.
 
 #### `vaultUISchema()` implementation
 - [ ] `schema.vaultType` and `schema.description` are non-empty
@@ -79,8 +85,17 @@ Work through every item below. Report PASS ✅ / FAIL ❌ / WARNING ⚠️.
 - [ ] `vaultData` decoded with `abi.decode` matching schema
 
 #### Guardian access control ⚠️ CRITICAL — see [001](./references/rules/001-vault-rules.md)
-- [ ] `_getGuardian()` is granted every privileged role at construction
-- [ ] `revokeRole()` is overridden to prevent revoking the Guardian's role
+
+> **The implementation pattern depends on the access control mechanism the vault uses. Do NOT apply OZ-AccessControl-specific checks to contracts that use custom modifiers.**
+
+**For contracts using OpenZeppelin `AccessControl`:**
+- [ ] `_getGuardian()` address is granted every privileged role at construction
+- [ ] `revokeRole()` is overridden to revert when `account == _getGuardian()`
+
+**For contracts using custom modifiers (e.g. `onlyOwner`, `onlyOwnerOrGuardian`):**
+- [ ] Every privileged modifier includes a `msg.sender == _getGuardian()` branch — Guardian must be able to call all permissioned functions
+- [ ] No function allows removing or replacing the Guardian address (Guardian is hardcoded in `VaultBaseV2._getGuardian()` — this is automatically satisfied when VaultBaseV2 is correctly inherited or flattened)
+- [ ] Do NOT flag "revokeRole() not overridden" on contracts that do not use OZ AccessControl — this is a false positive
 
 #### `isQuoteTokenSupported()` (factory)
 - [ ] Implements `isQuoteTokenSupported(address) external view returns (bool)`
@@ -103,7 +118,17 @@ Work through every item below. Report PASS ✅ / FAIL ❌ / WARNING ⚠️.
 - [ ] Callback ≤ 2M gas; replay protection enforced
 
 #### Emergency controls (if present) — see [009](./references/rules/009-emergency-risk-controls.md)
-- [ ] Guardian-only; inactive by default
+
+> **When writing recommendations for emergency function violations, you MUST use the exact function signatures and patterns from Rule 009 verbatim. Do NOT invent alternative signatures, parameter names, or access modifiers. Copy the reference implementation exactly.**
+
+- [ ] `emergencyWithdrawNative(address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance, emits `EmergencyWithdrawNative(to, bal)`
+- [ ] `emergencyWithdrawToken(address token, address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance via `safeTransfer`, emits `EmergencyWithdrawToken(token, to, bal)`
+- [ ] Both functions are `onlyGuardian` (NOT `onlyOwnerOrGuardian` — owner must NOT be able to call these)
+- [ ] Neither function accepts an `amount` parameter — they must drain the **full balance**
+- [ ] Destination address is a **caller-supplied `address to` parameter**, never hardcoded to `_owner` or any other fixed address
+- [ ] Both functions have `nonReentrant`
+- [ ] `autoForwardEnabled` defaults to `false` (if auto-forward is implemented)
+- [ ] `setAutoForward` is `onlyGuardian` (if implemented)
 
 #### Integration tests — see [006](./references/rules/006-integration-test-coverage.md)
 - [ ] Test suite covers: `receive()` gas budget, critical write happy/revert paths, view methods, `description()`, `vaultUISchema()`, guardian access, role revocation guard
