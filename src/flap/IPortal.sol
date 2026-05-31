@@ -43,7 +43,6 @@ interface IPortalCommonTypes {
         CURVE_RH_MONAD, // r = 50000, h = 107036752, k = 55351837600000 - MONAD curve
         CURVE_RH_MONAD_V2, // r = 107400, h = 107036752, k = 118895747164800  - MONAD V2 curve
         CURVE_RH_KGST // r = 380000, h = 107036752, k = 420673965760000 - KGST curve
-
     }
 
     /// @dev dex threshold types
@@ -54,7 +53,6 @@ interface IPortalCommonTypes {
         _95_PERCENT, // 95% supply
         _81_PERCENT, // 81% supply
         _1_PERCENT // 1% supply => mainly for testing
-
     }
 
     /// @notice Fee profile for tokens
@@ -63,7 +61,6 @@ interface IPortalCommonTypes {
     enum FlapFeeProfile {
         FEE_GLOBAL_DEFAULT, // Default fee profile used when no specific profile is set for a token
         FEE_FLAPSALE_V0 // Fee profile for FlapSale V0
-
     }
 
     //
@@ -107,8 +104,8 @@ interface IPortalTypes is IPortalCommonTypes {
         TOKEN_GOPLUS, // 3
         TOKEN_TAXED, // 4: The original tax token (FlapTaxToken)
         TOKEN_TAXED_V2, // 5: The new advanced tax token (FlapTaxTokenV2)
-        TOKEN_TAXED_V3 // 6: The next-generation tax token with asymmetric buy/sell rates (FlapTaxTokenV3)
-
+        TOKEN_TAXED_V3, // 6: The next-generation tax token with asymmetric buy/sell rates (FlapTaxTokenV3)
+        TOKEN_V3_PERMIT // 7: Non-tax token using TokenV3 implementation with permit support
     }
 
     /// @dev the quote token, i.e, the token as the reserve
@@ -116,7 +113,6 @@ interface IPortalTypes is IPortalCommonTypes {
         NATIVE_GAS_TOKEN, // The native gas token
         ERC20_TOKEN_WITH_PERMIT, //  The ERC20 token with permit
         ERC20_TOKEN_WITHOUT_PERMIT // The ERC20 token without permit
-
     }
 
     /// @notice the status of a token
@@ -133,7 +129,6 @@ interface IPortalTypes is IPortalCommonTypes {
         Killed, // obsolete
         DEX,
         Staged // The token is staged (address determined, but not yet created)
-
     }
 
     /// @notice the migrator type
@@ -143,8 +138,9 @@ interface IPortalTypes is IPortalCommonTypes {
     /// A TAX token must use a V2 migrator.
     enum MigratorType {
         V3_MIGRATOR, // Migrate the liquidity to a Uniswap V3 like pool
-        V2_MIGRATOR // Migrate the liquidity to a Uniswap V2 like pool
-
+        V2_MIGRATOR, // Migrate the liquidity to a Uniswap V2 like pool
+        V4_UNI_MIGRATOR, // Migrate the liquidity to a Uniswap V4 pool (Base, XLayer)
+        PCS_INFINITY_CL_MIGRATOR // Migrate the liquidity to a Pancake Infinity CL Pool (BNB)
     }
 
     /// @notice the V3 LP fee profile
@@ -153,7 +149,6 @@ interface IPortalTypes is IPortalCommonTypes {
         LP_FEE_PROFILE_STANDARD, // Standard fee tier:  0.25% on PancakeSwap, 0.3% on Uniswap
         LP_FEE_PROFILE_LOW, // Low fee tier: typically, 0.01% on PancakeSwap, 0.05% on Uniswap
         LP_FEE_PROFILE_HIGH // High fee tier (1% for exotic pairs)
-
     }
 
     /// @notice the DEX ID
@@ -640,6 +635,46 @@ interface IPortalTypes is IPortalCommonTypes {
     // NOTE: `converter` is NOT in this struct — it is provided as an immutable
     // in PortalBase and automatically passed to TaxProcessor at initialization.
 
+    // ─── V7 Fee Configuration ────────────────────────────────────────────────
+
+    enum FeeType {
+        NONE,
+        MARKETING_OR_VAULT,
+        DIVIDEND,
+        DEFLATION,
+        LP_BPS
+    }
+
+    struct FeeConfig {
+        FeeType feeType;
+        uint16 bps;
+        address marketingAddress;
+        address dividendToken;
+        uint256 minimumShareBalance;
+    }
+
+    struct NewTokenV7Params {
+        string name;
+        string symbol;
+        string meta;
+        DexThreshType dexThresh;
+        bytes32 salt;
+        MigratorType migratorType;
+        address quoteToken;
+        uint256 quoteAmt;
+        bytes permitData;
+        bytes32 extensionID;
+        bytes extensionData;
+        DEXId dexId;
+        uint16 buyTaxRate;
+        uint16 sellTaxRate;
+        uint64 taxDuration;
+        uint64 antiFarmerDuration;
+        address commissionReceiver;
+        TokenVersion tokenVersion;
+        FeeConfig[4] feeConfigs;
+    }
+
     /// @notice Parameters for staging a new token (V5) - immutable parameters only
     struct StageNewTokenV5Params {
         /// The DEX supply threshold type
@@ -703,12 +738,11 @@ interface IPortalTypes is IPortalCommonTypes {
         SWAP_VIA_V3_3000_POOL, // 4: swap through v3 3000 pool
         SWAP_VIA_V3_10000_POOL, // 5: swap through v3 10000 pool
         SWAP_VIA_MIXED_ROUTER // 6: multi-hop via PancakeSwap Infinity MixedQuoter + UniversalRouter (BSC only)
-            //    used for tokens like uUSD that route BNB ↔ USDT(V3) ↔ uUSD(BinPool).
-            //    The actual routing logic is bypassed in _shouldUseMixedRouter() before
-            //    the enum is checked, so this value serves as a meaningful marker when
-            //    calling setQuoteTokenConfiguration — any non-SWAP_DISABLED value would
-            //    work, but this makes intent explicit.
-
+        //    used for tokens like uUSD that route BNB ↔ USDT(V3) ↔ uUSD(BinPool).
+        //    The actual routing logic is bypassed in _shouldUseMixedRouter() before
+        //    the enum is checked, so this value serves as a meaningful marker when
+        //    calling setQuoteTokenConfiguration — any non-SWAP_DISABLED value would
+        //    work, but this makes intent explicit.
     }
 
     /// @dev  the quote token configurations
@@ -724,7 +758,6 @@ interface IPortalTypes is IPortalCommonTypes {
     enum PoolType {
         V2, // Uniswap V2 style pools
         V3 // Uniswap V3 style pools
-
     }
 
     /// @dev Packed DEX pool information
@@ -1389,13 +1422,16 @@ interface IPortalLauncher is IPortalTypes {
 
     /// @notice Reserve the token address derived from `salt` by paying SALT_LOCK_FEE.
     /// @dev    The caller must pass the `tokenVersion` they intend to lock for.
-    ///         Currently only TOKEN_TAXED_V3 (6) is accepted; any other value reverts with
-    ///         UnsupportedTokenVersion.  The predicted token address must satisfy the
-    ///         TAX_TOKEN_SUFFIX vanity requirement (enforced by _predictTokenAddress).
-    ///         Fee is forwarded to FEE_RECEIVER.  Emits FlapSaltLocked.
+    ///         Accepted values include the non-tax V3-permit path (typically 0x8888 vanity)
+    ///         and the tax V3 path (typically 0x7777 vanity).
     /// @param salt         CREATE2 salt to reserve.
-    /// @param tokenVersion Token version to lock for. Must be TOKEN_TAXED_V3 at this time.
+    /// @param tokenVersion Token version to lock for.
     function lockSalt(bytes32 salt, TokenVersion tokenVersion) external payable;
+
+    /// @notice Launch a new token with V4 / PCS Infinity migration support.
+    /// @param params The V7 token parameters
+    /// @return token The created token address
+    function newTokenV7(NewTokenV7Params calldata params) external payable returns (address token);
 }
 
 /// @title Portal Lens Interface
@@ -1621,7 +1657,6 @@ interface IRoller {
         GOPLUS_UNIV3_LOCK, // The Goplus UNIv3 lock
         TOSHI_LP_LOCK, // The Toshi LP lock
         IZI_LP_LOCK // The IziSwap LP locker
-
     }
 
     /// @notice get the locks by token address

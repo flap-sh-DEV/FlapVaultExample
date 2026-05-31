@@ -2,6 +2,8 @@
 
 pragma solidity ^0.8.13;
 
+import {IPortalTypes} from "./IPortal.sol";
+
 /// @title IVaultFactory
 /// @notice Interface that all vault factory contracts must implement
 /// @dev Each vault type must have a corresponding factory contract that implements this interface
@@ -33,3 +35,33 @@ interface IVaultFactory {
     /// @return supported True if the quote token is supported, false otherwise
     function isQuoteTokenSupported(address quoteToken) external view returns (bool supported);
 }
+
+/// @title IVaultFactoryValidationV2
+/// @notice Optional validation extension introduced by factory spec v2.2.
+/// @dev    Kept in the same file as `IVaultFactory` for discoverability, but intentionally
+///         separated as its own interface because `onBeforeLaunch(...)` is not a mandatory
+///         requirement for legacy vault factories.
+interface IVaultFactoryValidationV2 {
+    /// @notice Stable validation payload used by VaultPortal when talking to v2.2+ factories.
+    /// @dev    This payload intentionally contains normalized launch semantics instead of
+    ///         wrapper-specific structs such as `NewTokenV6WithVaultParams` or `NewTokenV7WithVaultParams`.
+    struct LaunchValidationDataV1 {
+        IPortalTypes.TokenVersion tokenVersion;
+        address quoteToken;
+        uint16 buyTaxRate;
+        uint16 sellTaxRate;
+        uint16 vaultBps;
+        uint16 deflationBps;
+        uint16 dividendBps;
+        uint16 lpBps;
+        address dividendToken;
+        uint256 minimumShareBalance;
+    }
+
+    /// @notice Generic pre-launch validation hook.
+    /// @param validationData ABI-encoded normalized launch payload.
+    /// @return success True when the launch satisfies this factory's product constraints.
+    /// @return reason Human-readable explanation when `success` is false.
+    function onBeforeLaunch(bytes calldata validationData) external view returns (bool success, string memory reason);
+}
+

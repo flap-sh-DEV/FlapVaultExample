@@ -10,11 +10,13 @@ import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {FlapBSCFixture} from "./FlapBSCFixture.sol";
 import {VanityHelper} from "./lib/VanityHelper.sol";
 
-import {FreeCoinVault, FreeCoinVaultFactory} from "../src/FreeCoin.sol";
-import {IVaultPortalTypes} from "../src/flap/IVaultPortal.sol";
-import {IPortalTypes} from "../src/flap/IPortal.sol";
-import {IFlapTaxTokenV3} from "../src/flap/IFlapTaxTokenV3.sol";
-import {ITaxProcessor} from "../src/flap/ITaxProcessor.sol";
+import {FreeCoinVault, FreeCoinVaultFactory} from "src/FreeCoin.sol";
+import {IVaultPortalTypes} from "src/flap/IVaultPortal.sol";
+import {IPortalTypes} from "src/flap/IPortal.sol";
+import {IFlapTaxTokenV3} from "src/flap/IFlapTaxTokenV3.sol";
+import {ITaxProcessor} from "src/flap/ITaxProcessor.sol";
+import {VaultUISchema, VaultDataSchema} from "src/flap/IVaultSchemasV1.sol";
+import {VaultFactoryBaseV2} from "src/flap/VaultFactoryBaseV2.sol";
 
 // ============================================================
 //  FreeCoin Mainnet Fork Tests
@@ -59,9 +61,9 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
     // Use 0x7777...7777-prefixed addresses to avoid collisions with real on-chain
     // accounts (system contracts, precompiles, or funded wallets) on BSC mainnet fork.
     // The 0x7777 pattern is not a known precompile range and has no corresponding private key.
-    address public user1   = address(0x7777777777777777777777777777777777771001);
-    address public user2   = address(0x7777777777777777777777777777777777771002);
-    address public user3   = address(0x7777777777777777777777777777777777771003);
+    address public user1 = address(0x7777777777777777777777777777777777771001);
+    address public user2 = address(0x7777777777777777777777777777777777771002);
+    address public user3 = address(0x7777777777777777777777777777777777771003);
     address public creator = address(0x7777777777777777777777777777777777771004);
 
     // FreeCoinVault parameters
@@ -233,7 +235,7 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
         // calls must be covered by startPrank/stopPrank — a bare vm.prank() would
         // only cover the first external call (approve) and leave the swap unpranked.
         vm.startPrank(user1);
-        IERC20(token).transfer(token, 400_000 * 1e18);
+        require(IERC20(token).transfer(token, 400_000 * 1e18), "seed transfer failed");
         uint256 bnbReceived = _sell(token, user1Balance - 400_000 * 1e18);
         vm.stopPrank();
         console2.log("user1 sold tokens, received %s BNB", bnbReceived);
@@ -365,7 +367,123 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    //  Test 9: Multiple buys and dispatches accumulate in vault
+    //  Test 9: Getter helpers reflect claim state transitions
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_claimStateGetters() public {
+        (address initialClaimer, uint256 initialReward) = vault.getLastClaimerAndReward();
+        assertEq(vault.getNextClaimTime(), 0, "Initial next claim time should be zero");
+        assertEq(initialClaimer, address(0), "Initial last claimer should be zero");
+        assertEq(initialReward, 0, "Initial last reward should be zero");
+
+        vm.deal(address(vault), MAX_REWARD * 2);
+
+        vm.startPrank(user2);
+        vault.claim{gas: MAX_OP_GAS}();
+        vm.stopPrank();
+
+        assertEq(vault.getNextClaimTime(), block.timestamp + COOLDOWN, "Next claim time should advance by cooldown");
+
+        (address claimer, uint256 reward) = vault.getLastClaimerAndReward();
+        assertEq(claimer, user2, "Last claimer getter mismatch");
+        assertEq(reward, MAX_REWARD, "Last reward getter mismatch");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 10: Guardian can enable auto-forward mode
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_setAutoForwardAndForwarding() public {
+        address forwardTo = address(0x7777777777777777777777777777777777772001);
+
+        vm.prank(FLAP_GUARDIAN);
+        vault.setAutoForward(true, forwardTo);
+
+        assertTrue(vault.autoForwardEnabled(), "Auto-forward should be enabled");
+        assertEq(vault.forwardAddress(), forwardTo, "Forward address mismatch");
+
+        vm.deal(user3, 1 ether);
+        uint256 receiverBefore = forwardTo.balance;
+
+        vm.prank(user3);
+        (bool ok,) = payable(address(vault)).call{value: 0.4 ether}("");
+        assertTrue(ok, "Forwarding transfer should succeed");
+
+        assertEq(address(vault).balance, 0, "Vault should not retain forwarded BNB");
+        assertEq(forwardTo.balance - receiverBefore, 0.4 ether, "Forward recipient should receive BNB");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 11: Guardian can emergency withdraw native BNB from inherited hook
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_emergencyWithdrawNative() public {
+        address recipient = address(0x7777777777777777777777777777777777772002);
+        uint256 amount = 0.75 ether;
+
+        vm.deal(address(vault), amount);
+        uint256 recipientBefore = recipient.balance;
+
+        vm.prank(FLAP_GUARDIAN);
+        vault.emergencyWithdrawNative(recipient);
+
+        assertEq(address(vault).balance, 0, "Vault native balance should be drained");
+        assertEq(recipient.balance - recipientBefore, amount, "Recipient should receive full native balance");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 12: Guardian can emergency withdraw ERC-20 from inherited hook
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_emergencyWithdrawToken() public {
+        address recipient = address(0x7777777777777777777777777777777777772003);
+
+        vm.startPrank(user1);
+        uint256 tokensReceived = _buyOnBC(token, 5 ether);
+        IERC20(token).transfer(address(vault), tokensReceived / 2);
+        vm.stopPrank();
+
+        uint256 vaultTokenBalance = IERC20(token).balanceOf(address(vault));
+        require(vaultTokenBalance > 0, "Vault must hold ERC20 tokens before emergency withdraw");
+
+        vm.prank(FLAP_GUARDIAN);
+        vault.emergencyWithdrawToken(token, recipient);
+
+        assertEq(IERC20(token).balanceOf(address(vault)), 0, "Vault ERC20 balance should be drained");
+        assertEq(IERC20(token).balanceOf(recipient), vaultTokenBalance, "Recipient should receive full ERC20 balance");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 13: vaultUISchema() describes the expected UI surface
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_vaultUISchema() public view {
+        VaultUISchema memory schema = vault.vaultUISchema();
+
+        assertEq(schema.vaultType, "FreeCoinVault", "vaultUISchema.vaultType mismatch");
+        assertEq(schema.methods.length, 4, "vaultUISchema method count mismatch");
+
+        assertEq(schema.methods[0].name, "getNextReward", "Method[0] name mismatch");
+        assertEq(schema.methods[0].outputs.length, 1, "Method[0] outputs length mismatch");
+        assertEq(schema.methods[0].outputs[0].name, "reward", "Method[0] output name mismatch");
+
+        assertEq(schema.methods[1].name, "getNextClaimTime", "Method[1] name mismatch");
+        assertEq(schema.methods[1].outputs.length, 1, "Method[1] outputs length mismatch");
+        assertEq(schema.methods[1].outputs[0].fieldType, "time", "Method[1] output type mismatch");
+
+        assertEq(schema.methods[2].name, "getLastClaimerAndReward", "Method[2] name mismatch");
+        assertEq(schema.methods[2].outputs.length, 2, "Method[2] outputs length mismatch");
+        assertEq(schema.methods[2].outputs[0].name, "claimer", "Method[2] first output mismatch");
+        assertEq(schema.methods[2].outputs[1].name, "reward", "Method[2] second output mismatch");
+
+        assertEq(schema.methods[3].name, "claim", "Method[3] name mismatch");
+        assertTrue(schema.methods[3].isWriteMethod, "claim should be marked write-method");
+        assertEq(schema.methods[3].inputs.length, 0, "claim should not require inputs");
+        assertEq(schema.methods[3].approvals.length, 0, "claim should not require approvals");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 14: Multiple buys and dispatches accumulate in vault
     // ──────────────────────────────────────────────────────────────────────────
 
     function test_multipleDispatchesAccumulate() public {
@@ -388,7 +506,47 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    //  Test 10: VaultPortal.getVaultInfo() returns correct vault details
+    //  Test 15: Factory schema helpers return expected metadata
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_factorySchemaAndQuoteSupport() public view {
+        assertTrue(factory.isQuoteTokenSupported(address(0)), "Factory should support native BNB quote token");
+        assertTrue(!factory.isQuoteTokenSupported(address(1)), "Factory should reject non-native quote tokens");
+
+        VaultDataSchema memory schema = factory.vaultDataSchema();
+        assertEq(schema.fields.length, 2, "vaultDataSchema field count mismatch");
+        assertEq(schema.fields[0].name, "maxReward", "vaultDataSchema field[0] name mismatch");
+        assertEq(schema.fields[0].fieldType, "uint256", "vaultDataSchema field[0] type mismatch");
+        assertEq(schema.fields[0].decimals, 18, "vaultDataSchema field[0] decimals mismatch");
+        assertEq(schema.fields[1].name, "cooldown", "vaultDataSchema field[1] name mismatch");
+        assertEq(schema.fields[1].fieldType, "uint256", "vaultDataSchema field[1] type mismatch");
+        assertEq(schema.fields[1].decimals, 0, "vaultDataSchema field[1] decimals mismatch");
+        assertTrue(!schema.isArray, "vaultDataSchema should describe a single tuple");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 16: Legacy V6 validation hook reverts with the inherited default
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_legacyV6ValidationHookReverts() public {
+        IVaultPortalTypes.NewTokenV6WithVaultParams memory params;
+
+        vm.expectRevert(VaultFactoryBaseV2.LegacyV6ValidationHookNotImplemented.selector);
+        factory.onBeforeNewTokenV6WithVault(params);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 17: tokenCreationPolicies() stays empty on the inherited default
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function test_tokenCreationPoliciesIsEmpty() public view {
+        assertEq(
+            factory.tokenCreationPolicies().length, 0, "FreeCoin factory should inherit empty tokenCreationPolicies()"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Test 18: VaultPortal.getVaultInfo() returns correct vault details
     // ──────────────────────────────────────────────────────────────────────────
 
     function test_vaultPortalGetVaultInfo() public view {

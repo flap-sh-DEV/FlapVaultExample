@@ -5,7 +5,7 @@ pragma solidity ^0.8.13;
 import {VaultBase} from "./flap/VaultBase.sol";
 import {VaultBaseV2} from "./flap/VaultBaseV2.sol";
 import {VaultFactoryBaseV2} from "./flap/VaultFactoryBaseV2.sol";
-import {IVaultFactory} from "./flap/IVaultFactory.sol";
+import {IVaultFactory, IVaultFactoryValidationV2} from "./flap/IVaultFactory.sol";
 import {
     VaultUISchema,
     VaultMethodSchema,
@@ -13,8 +13,6 @@ import {
     FieldDescriptor,
     ApproveAction
 } from "./flap/IVaultSchemasV1.sol";
-import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/security/ReentrancyGuard.sol";
 
 /// @title FreeCoinVault
@@ -28,8 +26,6 @@ import {ReentrancyGuard} from "@openzeppelin/security/ReentrancyGuard.sol";
 ///   - After a successful claim the vault enters a cooldown period during
 ///     which no one can claim.
 contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
     // ──────────────────────────── State ───────────────────────────────────
     address public taxToken;
 
@@ -46,15 +42,6 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
     bool public autoForwardEnabled = false;
     /// @notice Target address for auto-forward mode.
     address public forwardAddress;
-
-    // ──────────────────────────── Events ─────────────────────────────────
-    event EmergencyWithdrawNative(address indexed to, uint256 amount);
-    event EmergencyWithdrawToken(address indexed token, address indexed to, uint256 amount);
-
-    modifier onlyGuardian() {
-        require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅 Guardian");
-        _;
-    }
 
     // ──────────────────────────── Constructor ────────────────────────────
     constructor(address _taxToken, uint256 _maxReward, uint256 _cooldown) {
@@ -122,28 +109,6 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
         reward = lastReward;
     }
 
-    // ──────────────────────────── Emergency controls (Rule 009) ─────────
-
-    /// @notice Drain all native BNB to a safe address. Guardian only.
-    function emergencyWithdrawNative(address to) external onlyGuardian nonReentrant {
-        require(to != address(0), unicode"Zero address / 零地址");
-        uint256 bal = address(this).balance;
-        if (bal > 0) {
-            (bool ok,) = to.call{value: bal}("");
-            require(ok, unicode"Native transfer failed / 转账失败");
-            emit EmergencyWithdrawNative(to, bal);
-        }
-    }
-
-    /// @notice Recover any ERC-20 token stuck in the vault. Guardian only.
-    function emergencyWithdrawToken(address token, address to) external onlyGuardian nonReentrant {
-        require(token != address(0) && to != address(0), unicode"Zero address / 零地址");
-        uint256 bal = IERC20(token).balanceOf(address(this));
-        if (bal > 0) {
-            IERC20(token).safeTransfer(to, bal);
-            emit EmergencyWithdrawToken(token, to, bal);
-        }
-    }
 
     /// @notice Enable/disable auto-forward mode. Guardian only.
     /// @dev When enabled, all incoming BNB is immediately forwarded to `_forwardAddress`.
@@ -241,8 +206,21 @@ contract FreeCoinVaultFactory is VaultFactoryBaseV2 {
     }
 
     /// @inheritdoc IVaultFactory
-    function isQuoteTokenSupported(address) external pure override returns (bool) {
-        return true;
+    function isQuoteTokenSupported(address quoteToken) external pure override returns (bool supported) {
+        supported = quoteToken == address(0);
+    }
+
+    /// @notice Enforce the normalized FreeCoinVault launch constraints used by the v2.2 validation hook.
+    function _validateBeforeLaunch(IVaultFactoryValidationV2.LaunchValidationDataV1 memory data)
+        internal
+        pure
+        override
+        returns (bool success, string memory reason)
+    {
+        if (data.quoteToken != address(0)) {
+            return (false, "FreeCoinVault currently supports native BNB only.");
+        }
+        return (true, "");
     }
 
     // ──────────────────────────── VaultFactoryBaseV2 override ────────────
