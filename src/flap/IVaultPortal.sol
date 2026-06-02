@@ -16,7 +16,6 @@ interface IVaultPortalTypes {
         LOW_MEDIUM_RISK, // 2 - Low to medium risk
         MEDIUM_RISK, // 3 - Medium risk
         HIGH_RISK // 4 - High risk
-
     }
 
     /// @notice Category classification for vaults (8 bits)
@@ -24,7 +23,6 @@ interface IVaultPortalTypes {
     enum VaultCategory {
         NONE, // 0 - Not in any category (default)
         TYPE_AI_ORACLE_POWERED // 1 - AI Oracle powered vaults
-
     }
 
     /// @notice Permission policy for a vault factory (8 bits)
@@ -328,10 +326,7 @@ interface IVaultPortal is IVaultPortalTypes {
     ///      the vault will be treated as unofficial with UNVERIFIED risk level
     /// @param params The parameters for creating the tax token and vault
     /// @return token The address of the newly created tax token
-    function newTaxTokenWithVault(NewTaxTokenWithVaultParams calldata params)
-        external
-        payable
-        returns (address token);
+    function newTaxTokenWithVault(NewTaxTokenWithVaultParams calldata params) external payable returns (address token);
 
     /// @notice Create a new tax token via Portal's newTokenV6 with an associated vault in a single transaction
     /// @dev Only TOKEN_TAXED_V3 is currently supported as tokenVersion; any other version reverts with FeatureDisabled.

@@ -303,36 +303,36 @@ abstract contract FlapBSCFixture is Test, VanityHelper {
         bytes memory vaultData
     ) internal pure returns (IVaultPortalTypes.NewTokenV6WithVaultParams memory params) {
         params = IVaultPortalTypes.NewTokenV6WithVaultParams({
-            name: name,
-            symbol: symbol,
-            meta: "",
-            dexThresh: IPortalCommonTypes.DexThreshType.FOUR_FIFTHS,
-            salt: salt,
-            migratorType: IPortalTypes.MigratorType.V2_MIGRATOR,
-            quoteToken: address(0), // BNB
-            quoteAmt: 0,
-            permitData: "",
-            extensionID: bytes32(0),
-            extensionData: "",
-            dexId: IPortalTypes.DEXId.DEX0,
-            lpFeeProfile: IPortalTypes.V3LPFeeProfile.LP_FEE_PROFILE_STANDARD,
-            // tax fields (symmetric 5%)
-            buyTaxRate: 500, // 5%
-            sellTaxRate: 500, // 5%
-            taxDuration: uint64(100 * 365 days),
-            antiFarmerDuration: uint64(1 days),
-            // allocation: all market revenue flows to the vault
-            mktBps: 10000, // 100% of remainder → vault
-            deflationBps: 0,
-            dividendBps: 0,
-            lpBps: 0,
-            minimumShareBalance: 0,
-            dividendToken: address(0),
-            commissionReceiver: address(0),
-            tokenVersion: IPortalTypes.TokenVersion.TOKEN_TAXED_V3,
-            vaultFactory: vaultFactory,
-            vaultData: vaultData
-        });
+                name: name,
+                symbol: symbol,
+                meta: "",
+                dexThresh: IPortalCommonTypes.DexThreshType.FOUR_FIFTHS,
+                salt: salt,
+                migratorType: IPortalTypes.MigratorType.V2_MIGRATOR,
+                quoteToken: address(0), // BNB
+                quoteAmt: 0,
+                permitData: "",
+                extensionID: bytes32(0),
+                extensionData: "",
+                dexId: IPortalTypes.DEXId.DEX0,
+                lpFeeProfile: IPortalTypes.V3LPFeeProfile.LP_FEE_PROFILE_STANDARD,
+                // tax fields (symmetric 5%)
+                buyTaxRate: 500, // 5%
+                sellTaxRate: 500, // 5%
+                taxDuration: uint64(100 * 365 days),
+                antiFarmerDuration: uint64(1 days),
+                // allocation: all market revenue flows to the vault
+                mktBps: 10000, // 100% of remainder → vault
+                deflationBps: 0,
+                dividendBps: 0,
+                lpBps: 0,
+                minimumShareBalance: 0,
+                dividendToken: address(0),
+                commissionReceiver: address(0),
+                tokenVersion: IPortalTypes.TokenVersion.TOKEN_TAXED_V3,
+                vaultFactory: vaultFactory,
+                vaultData: vaultData
+            });
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -453,6 +453,5 @@ abstract contract FlapBSCFixture is Test, VanityHelper {
         });
         received = portal.swapExactInput{gas: MAX_OP_GAS}(p);
     }
-
 }
 

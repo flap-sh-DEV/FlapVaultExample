@@ -65,7 +65,6 @@ interface IFlapTriggerService {
         PENDING, // 0 - Request created, waiting to be executed
         EXECUTED, // 1 - Successfully executed by the backend
         FAILED // 2 - Execution attempted but the callback reverted
-
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

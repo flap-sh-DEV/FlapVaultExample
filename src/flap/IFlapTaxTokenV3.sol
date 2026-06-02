@@ -21,7 +21,6 @@ interface IFlapTaxTokenV3 is IERC20 {
         TaxEnforcedAntiFarmer, // state2: DEX listed, tax applied for any pool transfer (anti-farmer window)
         TaxEnforced, // state3: DEX listed, tax applied for main pool transfers only
         TaxFree // state4: Tax duration elapsed, token is tax-free
-
     }
 
     /// @notice Emitted when the pool state transitions.

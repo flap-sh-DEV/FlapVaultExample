@@ -200,7 +200,6 @@ abstract contract VaultBaseV2 is VaultBase {
         }
     }
 
-
     /// @notice Returns the UI schema describing which methods the UI should
     ///         render for this vault.
     ///

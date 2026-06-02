@@ -109,7 +109,6 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
         reward = lastReward;
     }
 
-
     /// @notice Enable/disable auto-forward mode. Guardian only.
     /// @dev When enabled, all incoming BNB is immediately forwarded to `_forwardAddress`.
     function setAutoForward(bool enabled, address _forwardAddress) external onlyGuardian {
@@ -125,11 +124,9 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
     /// @inheritdoc VaultBase
     function description() public view override returns (string memory) {
         if (lastClaimer == address(0)) {
-            return
-                unicode"FreeCoinVault: No claims yet. Call claim() to receive free BNB! / 还没有人领取，调用 claim() 领取免费 BNB！";
+            return unicode"FreeCoinVault: No claims yet. Call claim() to receive free BNB! / 还没有人领取，调用 claim() 领取免费 BNB！";
         }
-        return
-        unicode"FreeCoinVault: Free BNB for everyone! Call claim() to receive your reward. / 人人有份的免费 BNB！调用 claim() 领取奖励。";
+        return unicode"FreeCoinVault: Free BNB for everyone! Call claim() to receive your reward. / 人人有份的免费 BNB！调用 claim() 领取奖励。";
     }
 
     // ──────────────────────────── VaultBaseV2 override ───────────────────
@@ -145,7 +142,8 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
 
         // ── View: getNextReward() ────────────────────────────────────────
         schema.methods[0].name = "getNextReward";
-        schema.methods[0].description = unicode"Returns the reward the next claimer would receive. / 返回下一位领取者将获得的奖励。";
+        schema.methods[0].description =
+        unicode"Returns the reward the next claimer would receive. / 返回下一位领取者将获得的奖励。";
         schema.methods[0].inputs = new FieldDescriptor[](0);
         schema.methods[0].outputs = new FieldDescriptor[](1);
         schema.methods[0].outputs[0] = FieldDescriptor("reward", "uint256", "Next reward amount in BNB", 18);
@@ -153,7 +151,8 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
 
         // ── View: getNextClaimTime() ─────────────────────────────────────
         schema.methods[1].name = "getNextClaimTime";
-        schema.methods[1].description = unicode"Returns the timestamp when the next claim can be made. / 返回下次可领取的时间戳。";
+        schema.methods[1].description =
+        unicode"Returns the timestamp when the next claim can be made. / 返回下次可领取的时间戳。";
         schema.methods[1].inputs = new FieldDescriptor[](0);
         schema.methods[1].outputs = new FieldDescriptor[](1);
         schema.methods[1].outputs[0] = FieldDescriptor("timestamp", "time", "Next claim timestamp (unix)", 0);
@@ -172,7 +171,8 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
         // ── Write: claim() ───────────────────────────────────────────────
         schema.methods[3].name = "claim";
         schema.methods[3].description = unicode"Claim free BNB. Each address can only claim once. "
-            unicode"There is a global cooldown between claims. / " unicode"领取免费 BNB，每个地址仅限一次，两次领取之间有全局冷却时间。";
+            unicode"There is a global cooldown between claims. / "
+            unicode"领取免费 BNB，每个地址仅限一次，两次领取之间有全局冷却时间。";
         schema.methods[3].inputs = new FieldDescriptor[](0);
         schema.methods[3].outputs = new FieldDescriptor[](0);
         schema.methods[3].approvals = new ApproveAction[](0);
@@ -191,7 +191,14 @@ contract FreeCoinVaultFactory is VaultFactoryBaseV2 {
     // ──────────────────────────── IVaultFactory ──────────────────────────
 
     /// @inheritdoc IVaultFactory
-    function newVault(address taxToken, address, /* quoteToken */ address, /* creator */ bytes calldata vaultData)
+    function newVault(
+        address taxToken,
+        address,
+        /* quoteToken */
+        address,
+        /* creator */
+        bytes calldata vaultData
+    )
         external
         override
         returns (address vault)
@@ -229,7 +236,8 @@ contract FreeCoinVaultFactory is VaultFactoryBaseV2 {
     function vaultDataSchema() public pure override returns (VaultDataSchema memory schema) {
         schema.description = unicode"Creates a FreeCoinVault that gives free BNB to callers of claim(). "
             unicode"Each address claims once; payout is capped at maxReward or balance. "
-            unicode"A cooldown separates consecutive claims. / " unicode"创建 FreeCoinVault，任何人调用 claim() 即可领取免费 BNB。"
+            unicode"A cooldown separates consecutive claims. / "
+            unicode"创建 FreeCoinVault，任何人调用 claim() 即可领取免费 BNB。"
             unicode"每个地址仅限一次，奖励上限为 maxReward 或余额（取较小值），两次领取之间有冷却期。";
         schema.fields = new FieldDescriptor[](2);
         schema.fields[0] = FieldDescriptor("maxReward", "uint256", "Maximum BNB reward per claim", 18);
