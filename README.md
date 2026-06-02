@@ -17,6 +17,7 @@ This repo will include example implementations of Flap Tax Vaults using the new 
 - [Directory Structure](#directory-structure)
 - [The Flap Tax Vault V2 Interfaces](#the-flap-tax-vault-v2-interfaces)
 - [The FreeCoin Vault Example](#the-freecoin-vault-example)
+- [Recommended Deployment Pattern: Upgradeable Proxy Vaults](#recommended-deployment-pattern-upgradeable-proxy-vaults)
 - [How to Use the Vault Factory](#how-to-use-the-vault-factory)
   - [Step 1 — Implement your vault and factory](#step-1--implement-your-vault-and-factory)
   - [Step 2 — Describe the UI schema](#step-2--describe-the-ui-schema)
@@ -139,6 +140,46 @@ Based on the above spec, we will show the following UI for interacting with the 
 
 ![alt text](misc/freecoin_tax_info.png)
 
+In addition to the plain non-upgradeable example above, this repository also includes a proxy-upgradeable variant at [`src/FreeCoinBeacon.sol`](src/FreeCoinBeacon.sol).  **For new vaults, we recommend using a proxy-based deployment pattern, and especially OpenZeppelin's `BeaconProxy` + `UpgradeableBeacon` combination.**  This gives you a cleaner upgrade path across many vault instances while keeping deployment and initialization simple.
+
+The repository also includes ready-to-use deployment scripts for that pattern:
+
+- [`script/mainnet/bnb/DeployFreeCoinBeacon.s.sol`](script/mainnet/bnb/DeployFreeCoinBeacon.s.sol)
+- [`script/testnet/bnb/DeployFreeCoinBeacon.s.sol`](script/testnet/bnb/DeployFreeCoinBeacon.s.sol)
+
+
+---
+
+## Recommended Deployment Pattern: Upgradeable Proxy Vaults
+
+For most production vaults, **we recommend deploying the vault implementation behind a proxy**, rather than deploying many immutable vault instances directly.
+
+Our preferred pattern is:
+
+- implementation contract with `initialize(...)`
+- OpenZeppelin [`UpgradeableBeacon`](https://docs.openzeppelin.com/contracts/4.x/api/proxy#UpgradeableBeacon)
+- OpenZeppelin [`BeaconProxy`](https://docs.openzeppelin.com/contracts/4.x/api/proxy#BeaconProxy)
+- factory deploys new proxy instances and initializes them during creation
+
+Why we recommend this pattern:
+
+1. **Operational flexibility** — if a bug or protocol change is discovered later, you can upgrade the implementation used by future and existing beacon-backed vault proxies.
+2. **Cleaner factory design** — the factory can create vaults with deterministic initialization data without embedding full constructor logic into every deployment path.
+3. **Consistent multi-vault upgrades** — one beacon can coordinate upgrades across many vault instances of the same type.
+4. **Better long-term maintenance** — auditors and integrators can reason about a single implementation + beacon authority model.
+
+For a complete example, see [`src/FreeCoinBeacon.sol`](src/FreeCoinBeacon.sol).
+
+### Recommended authority model for upgradeable vaults
+
+If you choose an upgradeable proxy architecture, we recommend that **upgrade authority is retained only by the Flap Guardian path** (or another strictly Guardian-controlled authority model that still satisfies the Flap spec).  Do not leave a separate non-Guardian owner, proxy admin, beacon owner, upgrader role, multisig, or deployer EOA with equivalent power unless that authority is also the Guardian-approved control path.
+
+### Emergency controls in upgradeable vaults
+
+For non-upgradeable vaults, emergency escape hatches such as `emergencyWithdrawNative(...)`, `emergencyWithdrawToken(...)`, and optional auto-forward controls can still be useful.
+
+For **proxy-upgradeable vaults**, however, you may choose to omit these controls entirely and rely on the upgrade path instead — this is the pattern used by [`src/FreeCoinBeacon.sol`](src/FreeCoinBeacon.sol).  In that design, the key requirement is that the upgrade/admin authority remains **Guardian-only**.
+
 
 ---
 
@@ -147,6 +188,8 @@ Based on the above spec, we will show the following UI for interacting with the 
 ### Step 1 — Implement your vault and factory
 
 Create your vault contract by inheriting from `VaultBaseV2` and your factory by inheriting from `VaultFactoryBaseV2`.  Both base contracts live in `src/flap/` and include full NatSpec explaining every function you need to implement.
+
+> **Recommended:** implement your vault as an upgradeable implementation contract and deploy user-facing vault instances behind **OpenZeppelin `BeaconProxy`** via your factory.  The non-upgradeable pattern is still supported, but for new production vaults we recommend the beacon proxy architecture shown in [`src/FreeCoinBeacon.sol`](src/FreeCoinBeacon.sol).
 
 ```
 src/
@@ -157,6 +200,11 @@ src/
 ```
 
 The factory's `createVault(address taxToken, bytes calldata vaultData)` is called by VaultPortal during `newTokenV6WithVault()`.  It must deploy a vault, initialise it, and return its address.  The `vaultData` bytes are ABI-encoded parameters chosen by the token creator at launch time — your `vaultDataSchema()` tells Flap.sh how to render the creation form.
+
+In the recommended beacon-proxy pattern, your factory should:
+
+1. deploy the implementation + beacon up front (usually in the factory constructor), and then
+2. create a new `BeaconProxy` in `newVault(...)`, passing `abi.encodeCall(YourVault.initialize, (...))` as initialization calldata.
 
 ### Step 2 — Describe the UI schema
 
@@ -169,6 +217,20 @@ Deploy your factory to BSC (or another supported chain).  No whitelisting or per
 ```bash
 forge script --account deployer --rpc-url https://bsc-dataseed.bnbchain.org \
     --broadcast script/mainnet/deploy-my-factory.sol
+```
+
+If you follow the recommended `BeaconProxy` pattern, see the included examples:
+
+```bash
+# Mainnet beacon-backed FreeCoin example
+forge script script/mainnet/bnb/DeployFreeCoinBeacon.s.sol:DeployFreeCoinBeacon \
+    --rpc-url https://bsc-dataseed.bnbchain.org \
+    --broadcast
+
+# Testnet beacon-backed FreeCoin example
+forge script script/testnet/bnb/DeployFreeCoinBeacon.s.sol:DeployFreeCoinBeacon \
+    --rpc-url https://bsc-testnet-dataseed.bnbchain.org \
+    --broadcast
 ```
 
 ### Step 4 — Launch a token using your factory

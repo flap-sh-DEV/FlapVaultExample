@@ -121,14 +121,17 @@ Work through every item below. Report PASS ✅ / FAIL ❌ / WARNING ⚠️.
 
 > **When writing recommendations for emergency function violations, you MUST use the exact function signatures and patterns from Rule 009 verbatim. Do NOT invent alternative signatures, parameter names, or access modifiers. Copy the reference implementation exactly.**
 
-- [ ] `emergencyWithdrawNative(address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance, emits `EmergencyWithdrawNative(to, bal)`
-- [ ] `emergencyWithdrawToken(address token, address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance via `safeTransfer`, emits `EmergencyWithdrawToken(token, to, bal)`
-- [ ] Both functions are `onlyGuardian` (NOT `onlyOwnerOrGuardian` — owner must NOT be able to call these)
-- [ ] Neither function accepts an `amount` parameter — they must drain the **full balance**
-- [ ] Destination address is a **caller-supplied `address to` parameter**, never hardcoded to `_owner` or any other fixed address
-- [ ] Both functions have `nonReentrant`
-- [ ] `autoForwardEnabled` defaults to `false` (if auto-forward is implemented)
-- [ ] `setAutoForward` is `onlyGuardian` (if implemented)
+> **Upgradeable/proxy exception:** If the vault itself is deployed behind a proxy or otherwise intentionally upgradeable (e.g. BeaconProxy / ERC1967 / Transparent / UUPS), do **NOT** require `emergencyWithdrawNative`, `emergencyWithdrawToken`, `autoForwardEnabled`, `forwardAddress`, or `setAutoForward`. For these vaults, instead verify that any upgrade/admin authority is retained by the Guardian only.
+
+- [ ] **For non-upgradeable vaults:** `emergencyWithdrawNative(address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance, emits `EmergencyWithdrawNative(to, bal)`
+- [ ] **For non-upgradeable vaults:** `emergencyWithdrawToken(address token, address to)` exists with signature matching Rule 009 **exactly** — `onlyGuardian`, `nonReentrant`, drains full balance via `safeTransfer`, emits `EmergencyWithdrawToken(token, to, bal)`
+- [ ] **For non-upgradeable vaults:** both emergency functions are `onlyGuardian` (NOT `onlyOwnerOrGuardian` — owner must NOT be able to call these)
+- [ ] **For non-upgradeable vaults:** neither function accepts an `amount` parameter — they must drain the **full balance**
+- [ ] **For non-upgradeable vaults:** destination address is a **caller-supplied `address to` parameter**, never hardcoded to `_owner` or any other fixed address
+- [ ] **For non-upgradeable vaults:** both functions have `nonReentrant`
+- [ ] `autoForwardEnabled` defaults to `false` (if auto-forward is implemented on a non-upgradeable vault)
+- [ ] `setAutoForward` is `onlyGuardian` (if auto-forward is implemented on a non-upgradeable vault)
+- [ ] **For upgradeable/proxy vaults:** upgrade/admin authority is Guardian-only; no non-Guardian owner, proxy admin, beacon owner, upgrader role, or equivalent authority may remain
 
 #### Integration tests — see [006](./references/rules/006-integration-test-coverage.md)
 - [ ] Test suite covers: `receive()` gas budget, critical write happy/revert paths, view methods, `description()`, `vaultUISchema()`, guardian access, role revocation guard

@@ -6,6 +6,8 @@
 
 This is a **Medium** severity rule. Missing emergency controls are informational. Poorly protected or actively dangerous implementations are **High**.
 
+> **Upgradeable/proxy exception:** If the vault itself is intentionally upgradeable and deployed behind a proxy (for example BeaconProxy / ERC1967 / Transparent / UUPS), the vault **does not need** to implement `emergencyWithdrawNative`, `emergencyWithdrawToken`, `autoForwardEnabled`, `forwardAddress`, or `setAutoForward`. In that case, the auditor must instead verify that all upgrade/admin authority is strictly Guardian-only.
+
 ---
 
 ## Rationale
@@ -17,6 +19,8 @@ These functions are intentionally infrequent. Their presence improves safety; th
 ---
 
 ## Required Emergency Functions
+
+> The functions in this section apply to **non-upgradeable vaults**. Proxy-upgradeable vaults may omit them entirely under the exception above.
 
 ### 1. `emergencyWithdrawNative`
 
@@ -56,6 +60,8 @@ function emergencyWithdrawToken(address token, address to) external onlyGuardian
 ---
 
 ## Optional: Auto-Forward (`receive()` Risk-Control Mode)
+
+> This section applies only when a vault chooses to implement auto-forward. Proxy-upgradeable vaults may omit this mode entirely under the upgradeable/proxy exception above.
 
 Some vaults may support an emergency auto-forward mode that immediately re-routes incoming BNB to a safe address. This is useful when the vault's normal accumulation logic is compromised or the vault itself is at risk.
 
@@ -101,14 +107,15 @@ function setAutoForward(bool enabled, address _forwardAddress) external onlyGuar
 
 | Check | Finding if violated |
 |---|---|
-| `emergencyWithdrawNative` exists and is `onlyGuardian` | Medium (missing emergency native currency escape) |
-| `emergencyWithdrawToken` exists and is `onlyGuardian` | Medium (missing stuck-token recovery) |
-| Both emergency functions have `nonReentrant` | High (reentrancy on fund-movement path) |
-| `autoForwardEnabled` defaults to `false` | High (active auto-forward on deploy is an immediate DoS / fund-routing risk) |
-| `setAutoForward` is `onlyGuardian` | Critical (anyone can redirect all incoming BNB) |
-| When `autoForwardEnabled = true`, `receive()` stays within 1M gas | High (see Rule 005) |
-| Forward target restricted or validated | Medium (unrestricted target allows rerouting funds to attacker-controlled address) |
-| Emergency functions accessible by Guardian | Critical (Rule 001 — Guardian must reach all privileged functions) |
+| **Non-upgradeable vaults:** `emergencyWithdrawNative` exists and is `onlyGuardian` | Medium (missing emergency native currency escape) |
+| **Non-upgradeable vaults:** `emergencyWithdrawToken` exists and is `onlyGuardian` | Medium (missing stuck-token recovery) |
+| **Non-upgradeable vaults:** both emergency functions have `nonReentrant` | High (reentrancy on fund-movement path) |
+| **Non-upgradeable vaults with auto-forward:** `autoForwardEnabled` defaults to `false` | High (active auto-forward on deploy is an immediate DoS / fund-routing risk) |
+| **Non-upgradeable vaults with auto-forward:** `setAutoForward` is `onlyGuardian` | Critical (anyone can redirect all incoming BNB) |
+| **Non-upgradeable vaults with auto-forward:** when `autoForwardEnabled = true`, `receive()` stays within 1M gas | High (see Rule 005) |
+| **Non-upgradeable vaults with auto-forward:** forward target restricted or validated | Medium (unrestricted target allows rerouting funds to attacker-controlled address) |
+| **Upgradeable/proxy vaults:** all upgrade/admin authority is Guardian-only | Critical (non-Guardian upgrade authority bypasses Rule 001 and emergency-control intent) |
+| Where emergency functions exist, they remain accessible by Guardian | Critical (Rule 001 — Guardian must reach all privileged functions) |
 
 ---
 
@@ -116,10 +123,11 @@ function setAutoForward(bool enabled, address _forwardAddress) external onlyGuar
 
 | Scenario | Severity |
 |---|---|
-| Emergency withdraw functions missing entirely | Info/Medium |
+| Non-upgradeable vault: emergency withdraw functions missing entirely | Info/Medium |
 | Emergency withdraw not protected by Guardian/privileged role | Critical |
-| `nonReentrant` missing on fund-movement emergency functions | High |
-| `autoForwardEnabled` defaults to `true` | High |
-| `setAutoForward` callable by non-Guardian | Critical |
-| `receive()` can exceed 1M gas when auto-forward is active | High |
+| Non-upgradeable vault: `nonReentrant` missing on fund-movement emergency functions | High |
+| Non-upgradeable vault: `autoForwardEnabled` defaults to `true` | High |
+| Non-upgradeable vault: `setAutoForward` callable by non-Guardian | Critical |
+| Non-upgradeable vault: `receive()` can exceed 1M gas when auto-forward is active | High |
+| Upgradeable/proxy vault: upgrade authority retained by non-Guardian | Critical |
 
