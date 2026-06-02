@@ -2,8 +2,6 @@
 
 pragma solidity ^0.8.13;
 
-import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {VaultBase} from "./VaultBase.sol";
 import {VaultUISchema} from "./IVaultSchemasV1.sol";
 
@@ -160,44 +158,9 @@ import {VaultUISchema} from "./IVaultSchemasV1.sol";
 ///   }
 ///
 abstract contract VaultBaseV2 is VaultBase {
-    using SafeERC20 for IERC20;
-
-    event EmergencyWithdrawNative(address indexed to, uint256 amount);
-    event EmergencyWithdrawToken(address indexed token, address indexed to, uint256 amount);
-
     modifier onlyGuardian() {
         require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅 Guardian");
         _;
-    }
-
-    /// @notice Emergency withdraw all native gas token held by the vault.
-    /// @dev Default implementation is Guardian-only and drains the full native balance.
-    ///      Child vaults may still override the whole function if they need stricter rules.
-    /// @param to Recipient of the withdrawn native token balance.
-    function emergencyWithdrawNative(address to) external virtual onlyGuardian {
-        require(to != address(0), unicode"Zero address / 零地址");
-
-        uint256 bal = address(this).balance;
-        if (bal > 0) {
-            (bool ok,) = to.call{value: bal}("");
-            require(ok, unicode"Native transfer failed / 转账失败");
-            emit EmergencyWithdrawNative(to, bal);
-        }
-    }
-
-    /// @notice Emergency withdraw an ERC-20 token held by the vault.
-    /// @dev Default implementation is Guardian-only and transfers the full token balance.
-    ///      Child vaults may still override the whole function if they need stricter rules.
-    /// @param token ERC-20 token address to withdraw.
-    /// @param to Recipient of the withdrawn token balance.
-    function emergencyWithdrawToken(address token, address to) external virtual onlyGuardian {
-        require(token != address(0) && to != address(0), unicode"Zero address / 零地址");
-
-        uint256 bal = IERC20(token).balanceOf(address(this));
-        if (bal > 0) {
-            IERC20(token).safeTransfer(to, bal);
-            emit EmergencyWithdrawToken(token, to, bal);
-        }
     }
 
     /// @notice Returns the UI schema describing which methods the UI should

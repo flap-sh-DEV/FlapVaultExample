@@ -2,6 +2,8 @@
 
 pragma solidity ^0.8.13;
 
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {VaultBase} from "./flap/VaultBase.sol";
 import {VaultBaseV2} from "./flap/VaultBaseV2.sol";
 import {VaultFactoryBaseV2} from "./flap/VaultFactoryBaseV2.sol";
@@ -26,6 +28,11 @@ import {ReentrancyGuard} from "@openzeppelin/security/ReentrancyGuard.sol";
 ///   - After a successful claim the vault enters a cooldown period during
 ///     which no one can claim.
 contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    event EmergencyWithdrawNative(address indexed to, uint256 amount);
+    event EmergencyWithdrawToken(address indexed token, address indexed to, uint256 amount);
+
     // ──────────────────────────── State ───────────────────────────────────
     address public taxToken;
 
@@ -116,6 +123,32 @@ contract FreeCoinVault is VaultBaseV2, ReentrancyGuard {
         if (enabled) {
             require(_forwardAddress != address(0), unicode"Invalid forward address / 无效转发地址");
             forwardAddress = _forwardAddress;
+        }
+    }
+
+    /// @notice Emergency withdraw all native gas token held by the vault.
+    /// @param to Recipient of the withdrawn native token balance.
+    function emergencyWithdrawNative(address to) external onlyGuardian {
+        require(to != address(0), unicode"Zero address / 零地址");
+
+        uint256 bal = address(this).balance;
+        if (bal > 0) {
+            (bool ok,) = to.call{value: bal}("");
+            require(ok, unicode"Native transfer failed / 转账失败");
+            emit EmergencyWithdrawNative(to, bal);
+        }
+    }
+
+    /// @notice Emergency withdraw an ERC-20 token held by the vault.
+    /// @param token ERC-20 token address to withdraw.
+    /// @param to Recipient of the withdrawn token balance.
+    function emergencyWithdrawToken(address token, address to) external onlyGuardian {
+        require(token != address(0) && to != address(0), unicode"Zero address / 零地址");
+
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > 0) {
+            IERC20(token).safeTransfer(to, bal);
+            emit EmergencyWithdrawToken(token, to, bal);
         }
     }
 

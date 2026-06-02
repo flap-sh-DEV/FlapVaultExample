@@ -15,8 +15,25 @@ import {IVaultPortalTypes} from "src/flap/IVaultPortal.sol";
 import {IPortalTypes} from "src/flap/IPortal.sol";
 import {IFlapTaxTokenV3} from "src/flap/IFlapTaxTokenV3.sol";
 import {ITaxProcessor} from "src/flap/ITaxProcessor.sol";
-import {VaultUISchema, VaultDataSchema} from "src/flap/IVaultSchemasV1.sol";
+import {VaultUISchema, VaultDataSchema, FactoryPolicy} from "src/flap/IVaultSchemasV1.sol";
 import {VaultFactoryBaseV2} from "src/flap/VaultFactoryBaseV2.sol";
+import {IVaultFactoryValidationV2} from "src/flap/IVaultFactory.sol";
+
+contract RejectNativeReceiverV1 {
+    receive() external payable {
+        revert("reject-native");
+    }
+}
+
+contract RejectingClaimerV1 {
+    receive() external payable {
+        revert("reject-claim");
+    }
+
+    function claim(address vault) external {
+        FreeCoinVault(payable(vault)).claim();
+    }
+}
 
 // ============================================================
 //  FreeCoin Mainnet Fork Tests
@@ -65,10 +82,14 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
     address public user2 = address(0x7777777777777777777777777777777777771002);
     address public user3 = address(0x7777777777777777777777777777777777771003);
     address public creator = address(0x7777777777777777777777777777777777771004);
+    address public unitForwardTo = address(0x7777777777777777777777777777777777773001);
 
     // FreeCoinVault parameters
     uint256 constant MAX_REWARD = 0.01 ether; // 0.01 BNB per claim
     uint256 constant COOLDOWN = 1 hours; // 1 hour between claims
+
+    uint256 constant UNIT_MAX_REWARD = 0.25 ether;
+    uint256 constant UNIT_COOLDOWN = 30 minutes;
 
     // ──────────────────────────────────────────────────────────────────────────
     //  Set Up
@@ -561,8 +582,236 @@ contract FreeCoinMainnetTest is FlapBSCFixture {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    //  Unit coverage tests for src/FreeCoin.sol (merged into this contract)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function _deployStandaloneUnitVault() internal returns (FreeCoinVaultFactory unitFactory, FreeCoinVault unitVault) {
+        unitFactory = new FreeCoinVaultFactory();
+
+        vm.prank(VAULT_PORTAL);
+        address vaultAddr = unitFactory.newVault(
+            address(0xBEEF), address(0), address(this), abi.encode(UNIT_MAX_REWARD, UNIT_COOLDOWN)
+        );
+        unitVault = FreeCoinVault(payable(vaultAddr));
+    }
+
+    function test_unit_factoryDeploysConfiguredVault() public {
+        (FreeCoinVaultFactory unitFactory, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        assertEq(address(unitFactory) != address(0), true, "factory should deploy");
+        assertEq(unitVault.taxToken(), address(0xBEEF), "taxToken mismatch");
+        assertEq(unitVault.maxReward(), UNIT_MAX_REWARD, "maxReward mismatch");
+        assertEq(unitVault.cooldown(), UNIT_COOLDOWN, "cooldown mismatch");
+        assertEq(unitVault.getNextClaimTime(), 0, "next claim time should start at zero");
+    }
+
+    function test_unit_descriptionBeforeAndAfterClaim() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        assertEq(
+            unitVault.description(),
+            unicode"FreeCoinVault: No claims yet. Call claim() to receive free BNB! / 还没有人领取，调用 claim() 领取免费 BNB！",
+            "initial description mismatch"
+        );
+
+        vm.deal(address(unitVault), UNIT_MAX_REWARD);
+        vm.prank(user1);
+        unitVault.claim();
+
+        assertEq(
+            unitVault.description(),
+            unicode"FreeCoinVault: Free BNB for everyone! Call claim() to receive your reward. / 人人有份的免费 BNB！调用 claim() 领取奖励。",
+            "post-claim description mismatch"
+        );
+    }
+
+    function test_unit_claimWithZeroBalanceStillUpdatesState() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        vm.prank(user1);
+        unitVault.claim();
+
+        assertTrue(unitVault.hasClaimed(user1), "zero-balance claim should still mark address claimed");
+        assertEq(unitVault.lastClaimer(), user1, "lastClaimer mismatch");
+        assertEq(unitVault.lastReward(), 0, "lastReward should be zero");
+        assertEq(unitVault.getNextClaimTime(), block.timestamp + UNIT_COOLDOWN, "next claim time mismatch");
+    }
+
+    function test_unit_claimSuccessCooldownAndDoubleClaimReverts() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+        vm.deal(address(unitVault), 1 ether);
+
+        uint256 userBalanceBefore = user1.balance;
+
+        vm.prank(user1);
+        unitVault.claim();
+
+        uint256 reward = user1.balance - userBalanceBefore;
+        assertEq(reward, UNIT_MAX_REWARD, "claim reward should be capped by maxReward");
+        assertTrue(unitVault.hasClaimed(user1), "user should be marked as claimed");
+        assertEq(unitVault.lastClaimer(), user1, "lastClaimer mismatch");
+        assertEq(unitVault.lastReward(), UNIT_MAX_REWARD, "lastReward mismatch");
+        assertEq(unitVault.getNextClaimTime(), block.timestamp + UNIT_COOLDOWN, "cooldown should advance after claim");
+
+        vm.expectRevert(bytes(unicode"Already claimed / 已经领取过"));
+        vm.prank(user1);
+        unitVault.claim();
+
+        vm.expectRevert(bytes(unicode"Cooldown not elapsed / 冷却时间未结束"));
+        vm.prank(user2);
+        unitVault.claim();
+    }
+
+    function test_unit_claimRevertsWhenRecipientRejectsNativeTransfer() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+        RejectingClaimerV1 rejectingClaimer = new RejectingClaimerV1();
+
+        vm.deal(address(unitVault), UNIT_MAX_REWARD);
+
+        vm.expectRevert(bytes(unicode"Transfer failed / 转账失败"));
+        rejectingClaimer.claim(address(unitVault));
+
+        assertTrue(!unitVault.hasClaimed(address(rejectingClaimer)), "failed claim should roll back claimed flag");
+        assertEq(unitVault.lastClaimer(), address(0), "failed claim should not persist lastClaimer");
+        assertEq(unitVault.lastReward(), 0, "failed claim should not persist lastReward");
+    }
+
+    function test_unit_getterHelpersAndCappedReward() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        (address initialClaimer, uint256 initialReward) = unitVault.getLastClaimerAndReward();
+        assertEq(initialClaimer, address(0), "initial claimer should be zero");
+        assertEq(initialReward, 0, "initial reward should be zero");
+
+        vm.deal(address(unitVault), UNIT_MAX_REWARD / 2);
+        assertEq(unitVault.getNextReward(), UNIT_MAX_REWARD / 2, "reward should equal balance below cap");
+
+        vm.deal(address(unitVault), UNIT_MAX_REWARD * 2);
+        assertEq(unitVault.getNextReward(), UNIT_MAX_REWARD, "reward should be capped at maxReward");
+        assertEq(unitVault.getNextClaimTime(), 0, "nextClaimTime should start at zero");
+    }
+
+    function test_unit_setAutoForwardRequiresGuardianAndRejectsZeroAddress() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        vm.expectRevert(bytes(unicode"Only Guardian / 仅 Guardian"));
+        vm.prank(user1);
+        unitVault.setAutoForward(true, unitForwardTo);
+
+        vm.expectRevert(bytes(unicode"Invalid forward address / 无效转发地址"));
+        vm.prank(FLAP_GUARDIAN);
+        unitVault.setAutoForward(true, address(0));
+    }
+
+    function test_unit_setAutoForwardDisableKeepsFundsInVault() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+
+        vm.prank(FLAP_GUARDIAN);
+        unitVault.setAutoForward(true, unitForwardTo);
+        assertTrue(unitVault.autoForwardEnabled(), "auto-forward should be enabled");
+        assertEq(unitVault.forwardAddress(), unitForwardTo, "forwardAddress mismatch after enable");
+
+        vm.prank(FLAP_GUARDIAN);
+        unitVault.setAutoForward(false, address(0));
+        assertTrue(!unitVault.autoForwardEnabled(), "auto-forward should be disabled");
+        assertEq(unitVault.forwardAddress(), unitForwardTo, "forwardAddress should remain stored");
+
+        uint256 vaultBalanceBefore = address(unitVault).balance;
+        vm.prank(user1);
+        (bool ok,) = address(unitVault).call{value: 0.4 ether}("");
+        assertTrue(ok, "transfer should succeed when forwarding disabled");
+        assertEq(address(unitVault).balance, vaultBalanceBefore + 0.4 ether, "vault should retain funds when disabled");
+    }
+
+    function test_unit_receiveAutoForwardSuccessAndFailure() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+        RejectNativeReceiverV1 rejectingReceiver = new RejectNativeReceiverV1();
+
+        vm.prank(FLAP_GUARDIAN);
+        unitVault.setAutoForward(true, unitForwardTo);
+
+        uint256 receiverBefore = unitForwardTo.balance;
+        vm.prank(user1);
+        (bool ok,) = address(unitVault).call{value: 0.3 ether}("");
+        assertTrue(ok, "forwarding transfer should succeed");
+        assertEq(address(unitVault).balance, 0, "vault should not keep forwarded funds");
+        assertEq(unitForwardTo.balance - receiverBefore, 0.3 ether, "forward target should receive BNB");
+
+        vm.prank(FLAP_GUARDIAN);
+        unitVault.setAutoForward(true, address(rejectingReceiver));
+
+        vm.prank(user2);
+        (bool failedOk,) = address(unitVault).call{value: 0.1 ether}("");
+        assertTrue(!failedOk, "forwarding to a rejecting receiver should fail");
+    }
+
+    function test_unit_vaultUISchemaMetadata() public {
+        (, FreeCoinVault unitVault) = _deployStandaloneUnitVault();
+        VaultUISchema memory schema = unitVault.vaultUISchema();
+
+        assertEq(schema.vaultType, "FreeCoinVault", "vaultType mismatch");
+        assertEq(schema.methods.length, 4, "method count mismatch");
+        assertEq(schema.methods[0].name, "getNextReward", "method 0 mismatch");
+        assertEq(schema.methods[0].outputs[0].name, "reward", "method 0 output mismatch");
+        assertEq(schema.methods[1].name, "getNextClaimTime", "method 1 mismatch");
+        assertEq(schema.methods[1].outputs[0].fieldType, "time", "method 1 output type mismatch");
+        assertEq(schema.methods[2].name, "getLastClaimerAndReward", "method 2 mismatch");
+        assertEq(schema.methods[2].outputs.length, 2, "method 2 outputs length mismatch");
+        assertEq(schema.methods[3].name, "claim", "method 3 mismatch");
+        assertTrue(schema.methods[3].isWriteMethod, "claim should be write method");
+        assertEq(schema.methods[3].approvals.length, 0, "claim should not need approvals");
+    }
+
+    function test_unit_factoryRejectsNonVaultPortalCaller() public {
+        FreeCoinVaultFactory unitFactory = new FreeCoinVaultFactory();
+
+        vm.expectRevert(bytes(unicode"Only VaultPortal / 仅限 VaultPortal 调用"));
+        unitFactory.newVault(address(0xBEEF), address(0), address(this), abi.encode(UNIT_MAX_REWARD, UNIT_COOLDOWN));
+    }
+
+    function test_unit_factoryMetadataAndValidationHelpers() public {
+        FreeCoinVaultFactory unitFactory = new FreeCoinVaultFactory();
+
+        assertTrue(unitFactory.isQuoteTokenSupported(address(0)), "native quote token should be supported");
+        assertTrue(!unitFactory.isQuoteTokenSupported(address(1)), "ERC20 quote token should be rejected");
+        assertEq(unitFactory.factorySpecVersion(), "v2.2", "factory spec version mismatch");
+
+        FactoryPolicy[] memory policies = unitFactory.tokenCreationPolicies();
+        assertEq(policies.length, 0, "tokenCreationPolicies should be empty by default");
+
+        VaultDataSchema memory schema = unitFactory.vaultDataSchema();
+        assertEq(schema.fields.length, 2, "vaultDataSchema field count mismatch");
+        assertEq(schema.fields[0].name, "maxReward", "field 0 name mismatch");
+        assertEq(schema.fields[0].decimals, 18, "field 0 decimals mismatch");
+        assertEq(schema.fields[1].name, "cooldown", "field 1 name mismatch");
+        assertEq(schema.fields[1].fieldType, "uint256", "field 1 type mismatch");
+        assertTrue(!schema.isArray, "vaultDataSchema should not be array-shaped");
+
+        IVaultFactoryValidationV2.LaunchValidationDataV1 memory nativeData;
+        nativeData.quoteToken = address(0);
+        (bool nativeOk, string memory nativeReason) = unitFactory.onBeforeLaunch(abi.encode(nativeData));
+        assertTrue(nativeOk, "native quote token should pass validation");
+        assertEq(nativeReason, "", "native validation reason should be empty");
+
+        IVaultFactoryValidationV2.LaunchValidationDataV1 memory erc20Data;
+        erc20Data.quoteToken = address(1);
+        (bool erc20Ok, string memory erc20Reason) = unitFactory.onBeforeLaunch(abi.encode(erc20Data));
+        assertTrue(!erc20Ok, "non-native quote token should fail validation");
+        assertEq(erc20Reason, "FreeCoinVault currently supports native BNB only.", "validation reason mismatch");
+    }
+
+    function test_unit_factoryLegacyHookStillReverts() public {
+        FreeCoinVaultFactory unitFactory = new FreeCoinVaultFactory();
+        IVaultPortalTypes.NewTokenV6WithVaultParams memory params;
+
+        vm.expectRevert(VaultFactoryBaseV2.LegacyV6ValidationHookNotImplemented.selector);
+        unitFactory.onBeforeNewTokenV6WithVault(params);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     //  Receive BNB (needed when calling swapExactInput on DEX for native output)
     // ──────────────────────────────────────────────────────────────────────────
 
     receive() external payable {}
 }
+
