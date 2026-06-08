@@ -32,11 +32,21 @@ contract FreeCoinVaultUpgradeable is Initializable, VaultBaseV2, ReentrancyGuard
 
     mapping(address => bool) public hasClaimed;
 
+    /// @dev Disables initializers on the implementation contract so it cannot
+    ///      be initialized directly — only proxies pointing at it can.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /// @notice Initialize a freshly deployed `BeaconProxy` of this vault.
+    /// @dev    Replaces the constructor under the upgradeable pattern. Can only
+    ///         be called once per proxy thanks to the `initializer` modifier.
+    /// @param  _taxToken  Tax token recorded on the vault (currently unused by
+    ///                    claim logic; preserved for parity with the non-upgradeable
+    ///                    `FreeCoinVault`).
+    /// @param  _maxReward Per-claim reward cap, in wei.
+    /// @param  _cooldown  Seconds between consecutive successful claims.
     function initialize(address _taxToken, uint256 _maxReward, uint256 _cooldown) external initializer {
         __ReentrancyGuard_init();
 
@@ -45,10 +55,16 @@ contract FreeCoinVaultUpgradeable is Initializable, VaultBaseV2, ReentrancyGuard
         cooldown = _cooldown;
     }
 
+    /// @notice Accept native BNB transfers; funds accumulate for future `claim()` payouts.
     receive() external payable {
         // normal accumulation — funds sit in contract balance for claim()
     }
 
+    /// @notice Claim free BNB. Each address may claim once, and a global
+    ///         cooldown separates consecutive successful claims.
+    /// @dev    The cooldown advances even if the contract balance is zero, so
+    ///         a zero-reward claim still consumes the caller's one-shot slot
+    ///         and pushes `nextClaimTime` forward.
     function claim() external nonReentrant {
         require(!hasClaimed[msg.sender], unicode"Already claimed / 已经领取过");
         require(block.timestamp >= nextClaimTime, unicode"Cooldown not elapsed / 冷却时间未结束");
@@ -68,20 +84,30 @@ contract FreeCoinVaultUpgradeable is Initializable, VaultBaseV2, ReentrancyGuard
         }
     }
 
+    /// @notice Preview the reward the next caller of `claim()` would receive.
+    /// @return reward `min(address(this).balance, maxReward)`, in wei.
     function getNextReward() external view returns (uint256 reward) {
         uint256 balance = address(this).balance;
         reward = balance < maxReward ? balance : maxReward;
     }
 
+    /// @notice Earliest timestamp at which the next `claim()` will pass the
+    ///         cooldown check.
+    /// @return timestamp Unix seconds; zero before the first successful claim.
     function getNextClaimTime() external view returns (uint256 timestamp) {
         timestamp = nextClaimTime;
     }
 
+    /// @notice Read back the most recent claimer and the reward they received.
+    /// @return claimer Address of the last successful claimer (zero if none).
+    /// @return reward  Reward paid to that claimer, in wei.
     function getLastClaimerAndReward() external view returns (address claimer, uint256 reward) {
         claimer = lastClaimer;
         reward = lastReward;
     }
 
+    /// @notice Human-readable status string for the vault.
+    /// @dev    Switches once at least one address has successfully claimed.
     function description() public view override returns (string memory) {
         if (lastClaimer == address(0)) {
             return unicode"FreeCoinVault: No claims yet. Call claim() to receive free BNB! / 还没有人领取，调用 claim() 领取免费 BNB！";
@@ -89,6 +115,8 @@ contract FreeCoinVaultUpgradeable is Initializable, VaultBaseV2, ReentrancyGuard
         return unicode"FreeCoinVault: Free BNB for everyone! Call claim() to receive your reward. / 人人有份的免费 BNB！调用 claim() 领取奖励。";
     }
 
+    /// @notice On-chain UI schema describing this vault's callable methods.
+    /// @dev    Consumed by the generic Flap UI to auto-render a panel for the vault.
     function vaultUISchema() public pure override returns (VaultUISchema memory schema) {
         schema.vaultType = "FreeCoinVault";
         schema.description = unicode"A vault that gives away free BNB to anyone who calls claim(). "
@@ -138,11 +166,20 @@ contract FreeCoinVaultUpgradeable is Initializable, VaultBaseV2, ReentrancyGuard
 contract FreeCoinVaultBeaconFactory is VaultFactoryBaseV2 {
     address public immutable beacon;
 
+    /// @notice Deploy a fresh implementation and an `UpgradeableBeacon` pointing
+    ///         at it. The factory itself becomes the beacon's owner — the only
+    ///         account that can later call `upgradeTo`.
     constructor() {
         FreeCoinVaultUpgradeable impl = new FreeCoinVaultUpgradeable();
         beacon = address(new UpgradeableBeacon(address(impl)));
     }
 
+    /// @notice Deploy a new `BeaconProxy` vault and initialize it with the
+    ///         supplied parameters. Only callable by the chain's VaultPortal.
+    /// @param  taxToken  Tax token recorded on the new vault.
+    /// @param  vaultData ABI-encoded `(uint256 maxReward, uint256 cooldown)` —
+    ///                   see `vaultDataSchema()` for field meanings.
+    /// @return vault     Address of the freshly deployed `BeaconProxy`.
     function newVault(
         address taxToken,
         address,
@@ -167,19 +204,54 @@ contract FreeCoinVaultBeaconFactory is VaultFactoryBaseV2 {
         );
     }
 
+    /// @notice Whether `quoteToken` is accepted by this factory.
+    /// @dev    FreeCoinVault only supports native BNB (encoded as `address(0)`).
     function isQuoteTokenSupported(address quoteToken) external pure override returns (bool supported) {
         supported = quoteToken == address(0);
     }
 
+    /// @notice Upgrade the implementation contract that all `BeaconProxy` vaults
+    ///         deployed by this factory delegate to.
+    /// @dev    Only callable by the Guardian. Forwards to the underlying
+    ///         `UpgradeableBeacon.upgradeTo`, which requires `newImplementation`
+    ///         to be a contract. Reverts if `lockVaultUpgrades` has been called,
+    ///         since the factory will no longer own the beacon.
+    /// @param  newImplementation Address of the new vault implementation.
     function upgradeVaultImplementation(address newImplementation) external {
         require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅限 Guardian");
         UpgradeableBeacon(beacon).upgradeTo(newImplementation);
     }
 
+    /// @notice Permanently lock the beacon so that no future upgrades are possible.
+    /// @dev    Renounces the factory's ownership of the underlying `UpgradeableBeacon`,
+    ///         setting its owner to `address(0)`. After this call, every subsequent
+    ///         `upgradeVaultImplementation` will revert at the beacon's `onlyOwner`
+    ///         check. Intended for projects/communities that want to credibly
+    ///         commit to immutability after launch. The action is irreversible.
+    function lockVaultUpgrades() external {
+        require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅限 Guardian");
+        UpgradeableBeacon(beacon).renounceOwnership();
+    }
+
+    /// @notice Whether `lockVaultUpgrades` has been called and upgrades are
+    ///         permanently disabled.
+    /// @dev    Derived from the beacon's owner: a zero address means ownership
+    ///         was renounced, so no caller can ever pass the `onlyOwner` check
+    ///         on `UpgradeableBeacon.upgradeTo` again.
+    /// @return locked True once the beacon's ownership has been renounced.
+    function isVaultUpgradesLocked() external view returns (bool locked) {
+        locked = UpgradeableBeacon(beacon).owner() == address(0);
+    }
+
+    /// @notice Current implementation contract that all proxy vaults delegate to.
+    /// @return Address returned by the underlying `UpgradeableBeacon`.
     function beaconImplementation() external view returns (address) {
         return UpgradeableBeacon(beacon).implementation();
     }
 
+    /// @notice Pre-launch validation hook invoked by the framework before a
+    ///         new vault is created.
+    /// @dev    Rejects any non-native quote token; this factory only supports BNB.
     function _validateBeforeLaunch(IVaultFactoryValidationV2.LaunchValidationDataV1 memory data)
         internal
         pure
@@ -192,6 +264,8 @@ contract FreeCoinVaultBeaconFactory is VaultFactoryBaseV2 {
         return (true, "");
     }
 
+    /// @notice Schema describing the ABI-encoded `vaultData` accepted by `newVault`.
+    /// @dev    Consumed by the generic Flap UI to auto-render the creation form.
     function vaultDataSchema() public pure override returns (VaultDataSchema memory schema) {
         schema.description = unicode"Creates a beacon-proxied FreeCoinVault that gives free BNB to callers of claim(). "
             unicode"Each address claims once; payout is capped at maxReward or balance. "

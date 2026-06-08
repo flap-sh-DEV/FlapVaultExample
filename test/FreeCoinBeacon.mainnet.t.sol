@@ -207,6 +207,37 @@ contract FreeCoinBeaconTest is Test {
         factory.upgradeVaultImplementation(address(nextImplementation));
     }
 
+    function test_guardianCanLockVaultUpgrades() public {
+        assertTrue(!factory.isVaultUpgradesLocked(), "upgrades should not be locked initially");
+
+        vm.prank(TESTNET_GUARDIAN);
+        factory.lockVaultUpgrades();
+
+        assertTrue(factory.isVaultUpgradesLocked(), "upgrades should be locked after guardian call");
+
+        FreeCoinVaultUpgradeable nextImplementation = new FreeCoinVaultUpgradeable();
+        vm.expectRevert(bytes("Ownable: caller is not the owner"));
+        vm.prank(TESTNET_GUARDIAN);
+        factory.upgradeVaultImplementation(address(nextImplementation));
+    }
+
+    function test_nonGuardianCannotLockVaultUpgrades() public {
+        vm.expectRevert(bytes(unicode"Only Guardian / 仅限 Guardian"));
+        vm.prank(USER);
+        factory.lockVaultUpgrades();
+
+        assertTrue(!factory.isVaultUpgradesLocked(), "upgrades should remain unlocked");
+    }
+
+    function test_lockingIsIrreversibleAndIdempotentlyReverts() public {
+        vm.prank(TESTNET_GUARDIAN);
+        factory.lockVaultUpgrades();
+
+        vm.expectRevert(bytes("Ownable: caller is not the owner"));
+        vm.prank(TESTNET_GUARDIAN);
+        factory.lockVaultUpgrades();
+    }
+
     function test_factoryMetadataAndValidationHelpers() public view {
         assertTrue(factory.isQuoteTokenSupported(address(0)), "native quote token should be supported");
         assertTrue(!factory.isQuoteTokenSupported(address(1)), "ERC20 quote token should be rejected");

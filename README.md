@@ -1,10 +1,12 @@
 # Flap Tax Vault V2 Example
 
-> Note that it is now permissonless to launch a token using a vault on Flap.sh. You don't need to reach us to regsiter your vault factory or get whitelisted. Just implement the vault factory and vault contracts using the V2 interfaces, deploy them, and then go to Flap.sh to create your token using your own vault factory.  
+**English** | [中文](README.zh-CN.md)
 
-![alt text](misc/Launch_token_workflow.png)  
+> Note that it is now permissionless to launch a token using a vault on Flap.sh. You don't need to reach us to register your vault factory or get whitelisted. Just implement the vault factory and vault contracts using the V2 interfaces, deploy them, and then go to Flap.sh to create your token using your own vault factory.  
 
-This repo will include example implementations of Flap Tax Vaults using the new V2 interfaces. We will udpate more examples in the future, but for now, we have implemented a simple "FreeCoin" vault that gives free BNB to users who call the `claim()` function, with a cooldown period and a maximum reward limit.  
+![Launch token workflow](misc/Launch_token_workflow.png)  
+
+This repo will include example implementations of Flap Tax Vaults using the new V2 interfaces. We will update more examples in the future, but for now, we have implemented a simple "FreeCoin" vault that gives free BNB to users who call the `claim()` function, with a cooldown period and a maximum reward limit.  
 
 ---
 
@@ -82,7 +84,7 @@ function vaultDataSchema() public pure override returns (VaultDataSchema memory 
 
 Based on the above spec, we will show the following UI for the vault on Flap.sh:  
  
-![alt text](misc/FreeCoin_vault_config.png)  
+![FreeCoin vault config](misc/FreeCoin_vault_config.png)  
 
 
 And the FreeCoin Vault itself has a `vaultUISchema()` function that describes the parameters and functions of the vault:  
@@ -138,7 +140,7 @@ And the FreeCoin Vault itself has a `vaultUISchema()` function that describes th
 
 Based on the above spec, we will show the following UI for interacting with the vault on Flap.sh: 
 
-![alt text](misc/freecoin_tax_info.png)
+![FreeCoin tax info](misc/freecoin_tax_info.png)
 
 In addition to the plain non-upgradeable example above, this repository also includes a proxy-upgradeable variant at [`src/FreeCoinBeacon.sol`](src/FreeCoinBeacon.sol).  **For new vaults, we recommend using a proxy-based deployment pattern, and especially OpenZeppelin's `BeaconProxy` + `UpgradeableBeacon` combination.**  This gives you a cleaner upgrade path across many vault instances while keeping deployment and initialization simple.
 
@@ -199,7 +201,7 @@ src/
 └── YourVault.sol                ← your implementation
 ```
 
-The factory's `createVault(address taxToken, bytes calldata vaultData)` is called by VaultPortal during `newTokenV6WithVault()`.  It must deploy a vault, initialise it, and return its address.  The `vaultData` bytes are ABI-encoded parameters chosen by the token creator at launch time — your `vaultDataSchema()` tells Flap.sh how to render the creation form.
+The factory's `createVault(address taxToken, bytes calldata vaultData)` is called by VaultPortal during `newTokenV6WithVault()`.  It must deploy a vault, initialize it, and return its address.  The `vaultData` bytes are ABI-encoded parameters chosen by the token creator at launch time — your `vaultDataSchema()` tells Flap.sh how to render the creation form.
 
 In the recommended beacon-proxy pattern, your factory should:
 
