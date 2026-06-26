@@ -4,6 +4,14 @@ pragma solidity ^0.8.13;
 
 import {IPortalTypes} from "./IPortal.sol";
 
+// Version marker passed to `resolveDividendToken(...)` when launch params are encoded as
+// `IVaultPortalTypes.NewTokenV6WithVaultParams`.
+uint8 constant DIVIDEND_TOKEN_LAUNCH_VERSION_V6 = 6;
+
+// Version marker passed to `resolveDividendToken(...)` when launch params are encoded as
+// `IVaultPortalTypes.NewTokenV7WithVaultParams`.
+uint8 constant DIVIDEND_TOKEN_LAUNCH_VERSION_V7 = 7;
+
 /// @title IVaultFactory
 /// @notice Interface that all vault factory contracts must implement
 /// @dev Each vault type must have a corresponding factory contract that implements this interface
@@ -34,6 +42,25 @@ interface IVaultFactory {
     /// @param quoteToken The quote token address to check
     /// @return supported True if the quote token is supported, false otherwise
     function isQuoteTokenSupported(address quoteToken) external view returns (bool supported);
+}
+
+/// @title IVaultFactoryDividendV23
+/// @notice Optional factory-spec v2.3 extension for computed dividend-token resolution.
+/// @dev    Only factories that explicitly opt into v2.3 need to implement this interface.
+interface IVaultFactoryDividendV23 {
+    /// @notice Resolve the dividend token for a predicted (not yet deployed) tax token.
+    /// @dev    VaultPortal calls this only when the launcher supplied MAGIC_DIVIDEND_COMPUTED.
+    /// @param predictedToken The CREATE2-predicted tax-token address.
+    /// @param launchVersion The wrapper parameter version. Current callers use
+    ///        `DIVIDEND_TOKEN_LAUNCH_VERSION_V6` for `NewTokenV6WithVaultParams`
+    ///        and `DIVIDEND_TOKEN_LAUNCH_VERSION_V7` for `NewTokenV7WithVaultParams`.
+    /// @param launchParams ABI-encoded wrapper launch params. Current callers pass
+    ///        `abi.encode(NewTokenV6WithVaultParams)` or `abi.encode(NewTokenV7WithVaultParams)`.
+    /// @return dividendToken The actual dividend token to forward into Portal.
+    function resolveDividendToken(address predictedToken, uint8 launchVersion, bytes calldata launchParams)
+        external
+        view
+        returns (address dividendToken);
 }
 
 /// @title IVaultFactoryValidationV2

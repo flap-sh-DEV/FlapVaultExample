@@ -13,6 +13,14 @@ import {IAccessControlUpgradeable} from "@openzeppelin-contracts-upgradeable/acc
 ///        - any ERC-20 address: use that token as dividend (including quoteToken)
 address constant MAGIC_DIVIDEND_SELF = address(0xfEEDFEEDfeEDFEedFEEdFEEDFeEdfEEdFeEdFEEd);
 
+/// @dev Magic address value for `dividendToken` in NewTokenV6Params / FeeConfig.
+///      When set to this address, VaultPortal asks the selected vault factory to compute the
+///      actual dividend token from the CREATE2-predicted tax-token address before forwarding the
+///      launch into Portal. Requires a v2.3+ vault factory.
+///      Uses a dedicated sentinel (0xC0DE...C0DE) that does not collide with real ERC-20s,
+///      address(0), or MAGIC_DIVIDEND_SELF.
+address constant MAGIC_DIVIDEND_COMPUTED = address(0xC0Dec0dec0DeC0Dec0dEc0DEC0DEC0DEC0DEC0dE);
+
 /// @title Common Types
 /// @notice This interface defines common types shared across the portal
 interface IPortalCommonTypes {
@@ -617,6 +625,8 @@ interface IPortalTypes is IPortalCommonTypes {
         /// @notice Dividend distribution token:
         ///   address(0)         = native gas token dividend (only valid when quoteToken is also address(0))
         ///   MAGIC_DIVIDEND_SELF = distribute the tax token itself as dividend
+        ///   MAGIC_DIVIDEND_COMPUTED = let VaultPortal ask a v2.3+ vault factory to compute the
+        ///                             dividend token from the predicted tax-token address
         ///   quoteToken address  = explicitly use the quote token as dividend (must be set explicitly)
         ///   any other ERC-20   = use that specific ERC-20 as dividend token
         address dividendToken;
