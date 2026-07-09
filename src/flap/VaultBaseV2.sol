@@ -158,11 +158,6 @@ import {VaultUISchema} from "./IVaultSchemasV1.sol";
 ///   }
 ///
 abstract contract VaultBaseV2 is VaultBase {
-    modifier onlyGuardian() {
-        require(msg.sender == _getGuardian(), unicode"Only Guardian / 仅 Guardian");
-        _;
-    }
-
     /// @notice Returns the UI schema describing which methods the UI should
     ///         render for this vault.
     ///

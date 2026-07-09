@@ -72,6 +72,9 @@ abstract contract VaultBase {
         } else if (chainId == 97) {
             // BNB Testnet Portal
             return 0x5bEacaF7ABCbB3aB280e80D007FD31fcE26510e9;
+        } else if (chainId == 4663) {
+            // Robinhood Chain Portal
+            return 0x26605f322f7fF986f381bB9A6e3f5DAb0bEaEb09;
         }
         revert UnsupportedChain(chainId);
     }
@@ -87,6 +90,9 @@ abstract contract VaultBase {
         } else if (chainId == 97) {
             // BNB Testnet Guardian address
             return 0x76Fa8C526f8Bc27ba6958B76DeEf92a0dbE46950;
+        } else if (chainId == 4663) {
+            // Robinhood Chain Guardian address
+            return 0x0000b48720d3B4ED6BC5031768B07F2b59270000;
         }
         revert UnsupportedChain(chainId);
     }
