@@ -375,7 +375,7 @@ abstract contract VaultFactoryBaseV2 is IVaultFactory, IVaultFactoryValidationV2
         } else if (chainId == 97) {
             // BNB Testnet VaultPortal address
             return 0x027e3704fC5C16522e9393d04C60A3ac5c0d775f;
-        } else if (chainId == 4663) {
+        } else if (chainId == 4663 || chainId == 46630) {
             // Robinhood Chain — VaultPortal address
             return 0xe9F7AB7DE8FB8756acbB6a1cd13316a43308197B;
         }
@@ -403,7 +403,7 @@ abstract contract VaultFactoryBaseV2 is IVaultFactory, IVaultFactoryValidationV2
         } else if (chainId == 97) {
             // BNB Testnet Guardian address
             return 0x76Fa8C526f8Bc27ba6958B76DeEf92a0dbE46950;
-        } else if (chainId == 4663) {
+        } else if (chainId == 4663 || chainId == 46630) {
             // Robinhood Chain Guardian address
             return 0x0000b48720d3B4ED6BC5031768B07F2b59270000;
         }
